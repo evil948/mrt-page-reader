@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.0
+// @version      1.6.1
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -310,6 +310,29 @@
     ttsClient = ttsClient || new UniproxyTTS(SPEECHKIT_KEY);
     await ttsClient.connect();
 
+    const voiceOpts = () => ({
+      voice: prefs.voice || 'zahar',
+      emotion: prefs.emotion || 'neutral',
+      speed: Number(prefs.speed) || 1,
+      lang: 'ru-RU',
+    });
+
+    const synthAt = async (index) => {
+      try {
+        return await ttsClient.synthesize(session.chunks[index], voiceOpts());
+      } catch (_) {
+        try {
+          ttsClient.close();
+        } catch (_) {}
+        ttsClient = new UniproxyTTS(SPEECHKIT_KEY);
+        await ttsClient.connect();
+        return ttsClient.synthesize(session.chunks[index], voiceOpts());
+      }
+    };
+
+    // пока играет блок N — уже качаем N+1 (без паузы на сеть между блоками)
+    let nextOggPromise = synthAt(session.index);
+
     while (session.index < session.chunks.length) {
       if (token !== runToken) return;
       session = (await GM.getValue(SESSION_KEY, null)) || session;
@@ -318,7 +341,7 @@
         return;
       }
       while (session.paused) {
-        await sleep(300);
+        await sleep(200);
         session = (await GM.getValue(SESSION_KEY, null)) || session;
         if (!session || session.stopped || token !== runToken) {
           stopAudio();
@@ -326,7 +349,6 @@
         }
       }
 
-      const chunk = session.chunks[session.index];
       session.audioConfirmed = false;
       session.chunkStartedAt = null;
       session.error = null;
@@ -335,29 +357,13 @@
       highlightUnit(session);
       setStatus(formatStatus(session));
 
-      let ogg;
-      try {
-        ogg = await ttsClient.synthesize(chunk, {
-          voice: prefs.voice || 'zahar',
-          emotion: prefs.emotion || 'neutral',
-          speed: Number(prefs.speed) || 1,
-          lang: 'ru-RU',
-        });
-      } catch (err) {
-        // одно переподключение на блок
-        try {
-          ttsClient.close();
-        } catch (_) {}
-        ttsClient = new UniproxyTTS(SPEECHKIT_KEY);
-        await ttsClient.connect();
-        ogg = await ttsClient.synthesize(chunk, {
-          voice: prefs.voice || 'zahar',
-          emotion: prefs.emotion || 'neutral',
-          speed: Number(prefs.speed) || 1,
-          lang: 'ru-RU',
-        });
-      }
+      const ogg = await nextOggPromise;
       if (token !== runToken) return;
+
+      // сразу заказываем следующий, пока текущий ещё только начнёт играть
+      const following = session.index + 1;
+      nextOggPromise =
+        following < session.chunks.length ? synthAt(following) : null;
 
       session = (await GM.getValue(SESSION_KEY, null)) || session;
       if (!session || session.stopped) {
@@ -371,14 +377,16 @@
       setTransportUi({ playing: true, paused: false });
       setStatus(formatStatus(session, '▶'));
 
-      await playOgg(ogg, () => {
-        /* pause check via session */
-      });
+      await playOgg(ogg);
 
       if (token !== runToken) return;
       session = (await GM.getValue(SESSION_KEY, null)) || session;
       if (!session || session.stopped) return;
-      if (session.paused) continue;
+      if (session.paused) {
+        // после паузы пересоберём текущий/следующий заново
+        nextOggPromise = synthAt(session.index);
+        continue;
+      }
 
       session.index += 1;
       session.audioConfirmed = false;
