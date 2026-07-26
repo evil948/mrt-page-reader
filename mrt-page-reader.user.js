@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.5
+// @version      1.6.6
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -26,6 +26,7 @@
   const PREFS_KEY = 'mrt_plus_prefs';
   const UNIT_TARGET = 1600;
   const HARD_MAX = 4500;
+  const TITLE_PID = 0;
   const HOST_ID = 'mrt-plus-host';
   const STYLE_ID = 'mrt-plus-highlight-style';
   const HOTKEY_CODE = 'KeyR';
@@ -881,14 +882,25 @@
       const sep = /[.!?…:]$/.test(title) ? ' ' : '. ';
       const prefix = `${title}${sep}`;
       const shift = prefix.length;
+      const titleEl =
+        document.querySelector('h1') ||
+        document.querySelector('[itemprop="headline"]') ||
+        document.querySelector('.article__title');
+      if (titleEl) {
+        titleEl.setAttribute('data-mrt-plus-pid', String(TITLE_PID));
+        paragraphMap.set(TITLE_PID, titleEl);
+      }
       units[0] = {
         text: prefix + units[0].text,
-        pids: units[0].pids,
-        ranges: (units[0].ranges || []).map((r) => ({
-          pid: r.pid,
-          start: r.start + shift,
-          end: r.end + shift,
-        })),
+        pids: titleEl ? [TITLE_PID, ...units[0].pids] : units[0].pids,
+        ranges: [
+          ...(titleEl ? [{ pid: TITLE_PID, start: 0, end: shift }] : []),
+          ...(units[0].ranges || []).map((r) => ({
+            pid: r.pid,
+            start: r.start + shift,
+            end: r.end + shift,
+          })),
+        ],
       };
     }
     return { chunks: units.map((u) => u.text), units };
