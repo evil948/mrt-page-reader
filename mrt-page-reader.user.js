@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.3
+// @version      1.6.4
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
-// @updateURL    https://raw.githubusercontent.com/evil948/mrt-page-reader/main/mrt-page-reader.user.js
-// @downloadURL  https://raw.githubusercontent.com/evil948/mrt-page-reader/main/mrt-page-reader.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/evil948/mrt-page-reader@main/mrt-page-reader.user.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/evil948/mrt-page-reader@main/mrt-page-reader.user.js
 // @grant        GM.setValue
 // @grant        GM.getValue
 // @grant        GM.registerMenuCommand
