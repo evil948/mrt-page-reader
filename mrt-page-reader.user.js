@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.12
+// @version      1.6.13
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -54,12 +54,48 @@
     { id: 'tatyana_abramova', label: 'Tatyana' },
   ];
   const VOICE_IDS = new Set(VOICES.map((v) => v.id));
+  // На этих хостах FAB не нужен (видео, код, соцсети…) — Alt+R и меню TM всё равно работают.
+  const HIDE_FAB_HOSTS = [
+    /(^|\.)youtube\.com$/i,
+    /(^|\.)youtu\.be$/i,
+    /(^|\.)github\.com$/i,
+    /(^|\.)gist\.github\.com$/i,
+    /(^|\.)gitlab\.com$/i,
+    /(^|\.)bitbucket\.org$/i,
+    /(^|\.)stackoverflow\.com$/i,
+    /(^|\.)stackexchange\.com$/i,
+    /(^|\.)google\./i,
+    /(^|\.)gmail\.com$/i,
+    /(^|\.)twitter\.com$/i,
+    /(^|\.)x\.com$/i,
+    /(^|\.)facebook\.com$/i,
+    /(^|\.)instagram\.com$/i,
+    /(^|\.)tiktok\.com$/i,
+    /(^|\.)reddit\.com$/i,
+    /(^|\.)linkedin\.com$/i,
+    /(^|\.)netflix\.com$/i,
+    /(^|\.)twitch\.tv$/i,
+    /(^|\.)discord\.com$/i,
+    /(^|\.)chatgpt\.com$/i,
+    /(^|\.)claude\.ai$/i,
+    /(^|\.)cursor\.com$/i,
+    /(^|\.)openai\.com$/i,
+    /(^|\.)web\.whatsapp\.com$/i,
+    /(^|\.)web\.telegram\.org$/i,
+    /(^|\.)vk\.com$/i,
+    /(^|\.)vk\.ru$/i,
+    /(^|\.)ok\.ru$/i,
+    /(^|\.)mail\.ru$/i,
+    /(^|\.)mail\.yandex\./i,
+    /(^|\.)passport\.yandex\./i,
+  ];
   const DEFAULT_PREFS = {
     voice: 'zahar',
     emotion: 'neutral',
     speed: 1,
     offsetRight: 16,
     offsetBottom: 16,
+    forceFab: false,
   };
 
   let prefs = { ...DEFAULT_PREFS };
@@ -87,8 +123,41 @@
     GM.registerMenuCommand('Озвучить страницу (MRT+) — Alt+R', () => startSpeak());
     GM.registerMenuCommand('Озвучить выделенное (MRT+)', () => startSpeak({ selectionOnly: true }));
     GM.registerMenuCommand('Стоп (MRT+)', () => stopPlayback());
-    injectLauncher();
+    GM.registerMenuCommand('Показать кнопку MRT+', () => showFabPermanently());
+    if (shouldShowFab()) injectLauncher();
     bindHotkey();
+  }
+
+  function pageHost() {
+    return (location.hostname || '').replace(/^www\./i, '');
+  }
+
+  function isFabHiddenHost() {
+    const host = pageHost();
+    if (!host) return false;
+    return HIDE_FAB_HOSTS.some((re) => re.test(host));
+  }
+
+  function shouldShowFab() {
+    return Boolean(prefs.forceFab) || !isFabHiddenHost();
+  }
+
+  async function showFabPermanently() {
+    prefs.forceFab = true;
+    await GM.setValue(PREFS_KEY, prefs);
+    ensureLauncher(true);
+    setStatus('Кнопка MRT+ включена на этом устройстве.');
+  }
+
+  function ensureLauncher(force = false) {
+    if (!force && !shouldShowFab()) return null;
+    injectLauncher();
+    return document.getElementById(HOST_ID);
+  }
+
+  function removeLauncherIfHidden() {
+    if (shouldShowFab()) return;
+    document.getElementById(HOST_ID)?.remove();
   }
 
   function ui() {
@@ -386,6 +455,7 @@
 
   async function startSpeak({ selectionOnly = false, resumeSession = null } = {}) {
     unlockAudio();
+    ensureLauncher(true);
     const token = ++runToken;
     let session = resumeSession;
 
@@ -395,6 +465,10 @@
       const built = buildSpeakPlan({ selectionOnly });
       if (!built?.chunks?.length) {
         setStatus(selectionOnly ? 'Слишком короткое выделение.' : 'Не удалось найти текст статьи.');
+        setTimeout(() => {
+          setStatus('');
+          removeLauncherIfHidden();
+        }, 2200);
         return;
       }
       session = {
@@ -546,6 +620,10 @@
     clearHighlights();
     setTransportUi({ playing: false, paused: false });
     setStatus(session.chunks.length > 1 ? `Готово: ${session.chunks.length} блоков.` : 'Готово.');
+    setTimeout(() => {
+      setStatus('');
+      removeLauncherIfHidden();
+    }, 2200);
   }
 
   function playOgg(bytes) {
@@ -625,6 +703,7 @@
   }
 
   async function togglePause(force) {
+    ensureLauncher(true);
     const session = (await GM.getValue(SESSION_KEY, null)) || {};
     if (!session.chunks?.length || session.done || session.stopped) return;
     if (force || !session.paused) {
@@ -639,6 +718,7 @@
   }
 
   async function resumePlayback() {
+    ensureLauncher(true);
     let session = await GM.getValue(SESSION_KEY, null);
     if (!session?.chunks?.length || session.done) {
       setStatus('Нечего продолжать.');
@@ -679,12 +759,17 @@
     } catch (_) {}
     ttsClient = null;
     if (session.chunks?.length && !session.done && session.index < session.chunks.length) {
+      ensureLauncher(true);
       setTransportUi({ playing: false, paused: true });
       setStatus(`Остановлено. ${formatStatus(session, '■')}\n«▶ Далее» — продолжить.`);
     } else {
       clearHighlights();
       setTransportUi({ playing: false, paused: false });
       setStatus('Остановлено.');
+      setTimeout(() => {
+        setStatus('');
+        removeLauncherIfHidden();
+      }, 1500);
     }
   }
 
