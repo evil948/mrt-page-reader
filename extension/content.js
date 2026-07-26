@@ -1,18 +1,18 @@
-// ==UserScript==
-// @name         [MRT+] Озвучить страницу
-// @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.7.0
-// @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
-// @author       evil948
-// @match        *://*/*
-// @updateURL    https://raw.githubusercontent.com/evil948/mrt-page-reader/main/mrt-page-reader.user.js
-// @downloadURL  https://raw.githubusercontent.com/evil948/mrt-page-reader/main/mrt-page-reader.user.js
-// @grant        GM.setValue
-// @grant        GM.getValue
-// @grant        GM.registerMenuCommand
-// @connect      uniproxy.alice.yandex.net
-// @run-at       document-idle
-// ==/UserScript==
+/* Generated from mrt-page-reader.user.js - do not edit by hand; run tools/build-extension.ps1 */
+'use strict';
+
+const GM = {
+  async getValue(key, def) {
+    const data = await browser.storage.local.get(key);
+    return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : def;
+  },
+  async setValue(key, value) {
+    await browser.storage.local.set({ [key]: value });
+  },
+  registerMenuCommand() {
+    /* context menus live in background.js */
+  },
+};
 
 (function () {
   'use strict';
@@ -1337,5 +1337,20 @@
 
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
+  }
+
+  // Extension bridge: context menu + browser command Alt+R
+  if (typeof browser !== 'undefined' && browser.runtime?.onMessage) {
+    browser.runtime.onMessage.addListener((msg) => {
+      if (!msg || msg.type !== 'mrt-plus') return;
+      if (msg.action === 'speak') startSpeak();
+      else if (msg.action === 'speak-selection') startSpeak({ selectionOnly: true });
+      else if (msg.action === 'stop') stopPlayback();
+      else if (msg.action === 'toggle') {
+        if (isPaused) resumePlayback();
+        else if (isPlaying) togglePause(true);
+        else startSpeak();
+      }
+    });
   }
 })();

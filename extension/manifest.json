@@ -1,0 +1,45 @@
+{
+  "manifest_version": 2,
+  "name": "MRT+",
+  "version": "1.7.0",
+  "description": "Read articles aloud with Yandex voices: Alt+R, highlight, compact button.",
+  "homepage_url": "https://github.com/evil948/mrt-page-reader",
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "menus",
+    "activeTab",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "commands": {
+    "mrt-plus-toggle": {
+      "suggested_key": {
+        "default": "Alt+R",
+        "mac": "Alt+R"
+      },
+      "description": "MRT+: speak / pause / resume"
+    }
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mrt-plus@evil948.github.io",
+      "strict_min_version": "109.0"
+    }
+  }
+}
