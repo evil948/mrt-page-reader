@@ -16,25 +16,16 @@
 
 ### 1. Firefox (расширение, без Tampermonkey)
 
-Сборка не подписана Mozilla — так задумано для раздачи с GitHub (вариант «свой `.xpi`»).
+**Рекомендуется:** скачайте **signed** `.xpi` из [Releases](https://github.com/evil948/mrt-page-reader/releases) и откройте файл — Firefox установит дополнение (нужна подпись AMO, см. ниже «Подпись AMO»).
 
-**Вариант A — временно (удобно попробовать)**
+**Временно, без подписи**
 
-1. Скачайте репозиторий или клонируйте его.
-2. Откройте Firefox → `about:debugging#/runtime/this-firefox`.
-3. **Load Temporary Add-on…** → выберите [`extension/manifest.json`](extension/manifest.json).
-4. Расширение живёт до перезапуска Firefox.
+1. Клонируйте репозиторий.
+2. Firefox → `about:debugging#/runtime/this-firefox`.
+3. **Load Temporary Add-on…** → [`extension/manifest.json`](extension/manifest.json).
+4. Живёт до перезапуска Firefox.
 
-**Вариант B — файл `.xpi`**
-
-1. Возьмите `mrt-plus-*.xpi` из [Releases](https://github.com/evil948/mrt-page-reader/releases)  
-   или соберите сами: `powershell -File tools/build-extension.ps1`.
-2. Установка «постоянно» в обычном Firefox требует подписи Mozilla. Без подписи:
-   - временно через `about:debugging` (укажите `.xpi` или `manifest.json`);
-   - либо Firefox Developer Edition / Nightly с `xpinstall.signatures.required = false` (на свой страх и риск).
-
-После установки откройте статью → маленькая **▶** в углу или `Alt+R`.
-
+После установки откройте статью → маленькая **▶** в углу или `Alt+R`.  
 ПКМ по странице → пункты **MRT+** в контекстном меню.
 
 ### 2. Tampermonkey (userscript)
@@ -83,6 +74,19 @@ powershell -File tools/build-extension.ps1
 ```
 
 `extension/content.js` генерируется из userscript — править руками не нужно.
+
+### Подпись AMO (чтобы `.xpi` ставился кликом)
+
+1. Ключи: https://addons.mozilla.org/developers/addon/api/key/
+2. Скопируйте `tools/amo-credentials.local.ps1.example` → `tools/amo-credentials.local.ps1` и вставьте JWT issuer / secret (файл в `.gitignore`).
+3. Нужен [Node.js](https://nodejs.org/) (LTS).
+4. Запуск:
+
+```powershell
+powershell -File tools/sign-extension.ps1
+```
+
+Появится `dist/mrt-plus-VERSION-signed.xpi` — его можно класть в GitHub Releases. Канал **unlisted** (самораздача, не витрина AMO).
 
 ## Как это работает
 
