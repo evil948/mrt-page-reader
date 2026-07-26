@@ -1,0 +1,7 @@
+_out_*.bin
+_*.py
+_*.txt
+_gist_payload.json
+*.log
+.DS_Store
+Thumbs.db
