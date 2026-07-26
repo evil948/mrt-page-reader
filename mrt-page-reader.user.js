@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.9
+// @version      1.6.10
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -38,6 +38,8 @@
   const SPEECHKIT_KEY = 'bf4277fc-06c0-405a-b278-b796bbbd3f27';
   const UNIPROXY_URL = 'wss://uniproxy.alice.yandex.net/uni.ws';
   const TTS_FORMAT = 'audio/opus'; // сервер отдаёт Ogg Opus
+  // Только голоса, которые реально отвечают через Uniproxy (Alice/Translate).
+  // Levitan / filipp / alena и др. из старых списков MRT сейчас недоступны.
   const VOICES = [
     { id: 'zahar', label: 'Zahar' },
     { id: 'ermil', label: 'Ermil' },
@@ -46,12 +48,12 @@
     { id: 'omazh', label: 'Omazh' },
     { id: 'nastya', label: 'Nastya' },
     { id: 'sasha', label: 'Sasha' },
-    { id: 'levitan', label: 'Levitan' },
     { id: 'kolya', label: 'Kolya' },
     { id: 'kostya', label: 'Kostya' },
     { id: 'anton_samokhvalov', label: 'Anton' },
     { id: 'tatyana_shitova', label: 'Alice' },
   ];
+  const VOICE_IDS = new Set(VOICES.map((v) => v.id));
   const DEFAULT_PREFS = {
     voice: 'zahar',
     emotion: 'neutral',
@@ -77,6 +79,10 @@
 
   async function initParent() {
     prefs = { ...DEFAULT_PREFS, ...(await GM.getValue(PREFS_KEY, {})) };
+    if (!VOICE_IDS.has(prefs.voice)) {
+      prefs.voice = DEFAULT_PREFS.voice;
+      await GM.setValue(PREFS_KEY, prefs);
+    }
     ensureHighlightStyle();
     GM.registerMenuCommand('Озвучить страницу (MRT+) — Alt+R', () => startSpeak());
     GM.registerMenuCommand('Озвучить выделенное (MRT+)', () => startSpeak({ selectionOnly: true }));
