@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.7
+// @version      1.6.8
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -118,14 +118,27 @@
     s.id = STYLE_ID;
     s.textContent = `
       [data-mrt-plus-pid].mrt-plus-active {
-        background: rgba(47,111,237,.22) !important;
-        box-shadow: inset 3px 0 0 #2f6fed;
+        background-color: rgba(47,111,237,.28) !important;
+        box-shadow: inset 4px 0 0 #2f6fed, 0 0 0 3px rgba(47,111,237,.4) !important;
         border-radius: 4px;
+        outline: none !important;
       }
       [data-mrt-plus-pid].mrt-plus-done {
-        background: rgba(47,111,237,.08) !important;
-        box-shadow: inset 3px 0 0 rgba(47,111,237,.35);
+        background-color: rgba(47,111,237,.1) !important;
+        box-shadow: inset 4px 0 0 rgba(47,111,237,.4) !important;
         border-radius: 4px;
+      }
+      /* заголовки часто без «фона абзаца» — делаем заметнее */
+      h1[data-mrt-plus-pid].mrt-plus-active,
+      h2[data-mrt-plus-pid].mrt-plus-active,
+      [data-mrt-plus-pid="${TITLE_PID}"].mrt-plus-active {
+        background-color: rgba(47,111,237,.32) !important;
+        box-shadow: 0 0 0 6px rgba(47,111,237,.35), inset 0 0 0 9999px rgba(47,111,237,.12) !important;
+      }
+      h1[data-mrt-plus-pid].mrt-plus-done,
+      [data-mrt-plus-pid="${TITLE_PID}"].mrt-plus-done {
+        background-color: rgba(47,111,237,.12) !important;
+        box-shadow: 0 0 0 4px rgba(47,111,237,.2) !important;
       }`;
     document.documentElement.appendChild(s);
   }
@@ -175,12 +188,27 @@
 
     let activeEl = null;
     for (const r of unit.ranges) {
-      const el = paragraphMap.get(r.pid) || document.querySelector(`[data-mrt-plus-pid="${r.pid}"]`);
+      let el = paragraphMap.get(r.pid) || document.querySelector(`[data-mrt-plus-pid="${r.pid}"]`);
+      if (!el && r.pid === TITLE_PID) {
+        el = findTitleElement(unit.text.slice(0, r.end));
+        if (el) {
+          el.setAttribute('data-mrt-plus-pid', String(TITLE_PID));
+          paragraphMap.set(TITLE_PID, el);
+        }
+      }
       if (!el) continue;
       if (r.end <= pos + 0.5) el.classList.add('mrt-plus-done');
       else if (r.pid === active.pid) {
         el.classList.add('mrt-plus-active');
         activeEl = el;
+      }
+    }
+    if (!activeEl && active.pid === TITLE_PID) {
+      activeEl = findTitleElement(unit.text.slice(0, Math.max(active.end, 40)));
+      if (activeEl) {
+        activeEl.setAttribute('data-mrt-plus-pid', String(TITLE_PID));
+        paragraphMap.set(TITLE_PID, activeEl);
+        activeEl.classList.add('mrt-plus-active');
       }
     }
     if (!activeEl) {
@@ -405,8 +433,9 @@
     });
 
     const synthAt = async (index) => {
-      const raw = session.chunks[index];
-      const prepared = prepareForTts(raw);
+      // текст блока уже подготовлен в pack/prepareForTts — не перетираем длину,
+      // иначе прогресс подсветки разъезжается с аудио
+      const prepared = session.chunks[index];
       const trySynth = async (text) => {
         try {
           return await ttsClient.synthesize(text, voiceOpts());
@@ -420,10 +449,9 @@
         }
       };
 
-      let audio = await trySynth(prepared || raw);
-      // слишком короткий OGG на длинный текст ≈ «вздох»/шум модели — один мягкий повтор
-      if (isWeakTtsAudio(audio, prepared || raw)) {
-        const retryText = softenForRetry(prepared || raw);
+      let audio = await trySynth(prepared);
+      if (isWeakTtsAudio(audio, prepared)) {
+        const retryText = softenForRetry(prepared);
         const audio2 = await trySynth(retryText);
         if (audio2 && audio2.byteLength >= (audio?.byteLength || 0)) audio = audio2;
       }
@@ -882,19 +910,18 @@
       const sep = /[.!?…:]$/.test(title) ? ' ' : '. ';
       const prefix = `${title}${sep}`;
       const shift = prefix.length;
-      const titleEl =
-        document.querySelector('h1') ||
-        document.querySelector('[itemprop="headline"]') ||
-        document.querySelector('.article__title');
+      const titleEl = findTitleElement(title);
       if (titleEl) {
         titleEl.setAttribute('data-mrt-plus-pid', String(TITLE_PID));
         paragraphMap.set(TITLE_PID, titleEl);
       }
+      // range для title добавляем всегда: иначе пока читается заголовок
+      // подсветка прыгает на первый абзац
       units[0] = {
         text: prefix + units[0].text,
         pids: titleEl ? [TITLE_PID, ...units[0].pids] : units[0].pids,
         ranges: [
-          ...(titleEl ? [{ pid: TITLE_PID, start: 0, end: shift }] : []),
+          { pid: TITLE_PID, start: 0, end: shift },
           ...(units[0].ranges || []).map((r) => ({
             pid: r.pid,
             start: r.start + shift,
@@ -904,6 +931,56 @@
       };
     }
     return { chunks: units.map((u) => u.text), units };
+  }
+
+  /** Ищем DOM-узел заголовка по тексту (не только h1 — вёрстка сайтов разная). */
+  function findTitleElement(spokenTitle) {
+    const target = prepareForTts(spokenTitle);
+    if (!target) return null;
+    const tip = target.slice(0, Math.min(28, target.length)).toLowerCase();
+    const selectors = [
+      'h1',
+      'h1 span',
+      '[itemprop="headline"]',
+      '.article__title',
+      '.article-title',
+      '.post__title',
+      '.post-title',
+      '.material__title',
+      '[class*="articleTitle"]',
+      '[class*="article__title"]',
+      '[class*="ArticleTitle"]',
+      'article h1',
+      'main h1',
+    ];
+    let best = null;
+    let bestScore = 0;
+    const seen = new Set();
+    for (const sel of selectors) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        if (el.closest('nav,aside,footer,[class*="recommend"],[class*="related"]')) continue;
+        const raw = el.innerText || '';
+        if (raw.length < 8 || raw.length > 300) continue;
+        const t = prepareForTts(raw);
+        if (!t) continue;
+        const tl = t.toLowerCase();
+        let score = 0;
+        if (tl === target.toLowerCase()) score = 2000;
+        else if (tl.startsWith(tip) || target.toLowerCase().startsWith(tl.slice(0, Math.min(28, tl.length)))) score = 1200;
+        else if (tl.includes(tip)) score = 600;
+        else continue;
+        // предпочитаем сам заголовок, а не огромную обёртку
+        if (/^h[12]$/i.test(el.tagName)) score += 150;
+        score -= Math.min(80, Math.abs(t.length - target.length));
+        if (score > bestScore) {
+          bestScore = score;
+          best = /^h[12]$/i.test(el.tagName) ? el : el.closest('h1,h2') || el;
+        }
+      }
+    }
+    return bestScore >= 600 ? best : document.querySelector('article h1, main h1, h1');
   }
 
   function findArticleRoot() {
