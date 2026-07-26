@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.2
+// @version      1.6.3
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -65,6 +65,7 @@
   let audioCtx = null;
   let ttsClient = null;
   let runToken = 0;
+  let lastHighlightKey = '';
 
   if (window !== window.top) return;
 
@@ -116,15 +117,81 @@
     s.id = STYLE_ID;
     s.textContent = `
       [data-mrt-plus-pid].mrt-plus-active {
-        background: rgba(47,111,237,.16) !important;
+        background: rgba(47,111,237,.22) !important;
         box-shadow: inset 3px 0 0 #2f6fed;
+        border-radius: 4px;
+      }
+      [data-mrt-plus-pid].mrt-plus-done {
+        background: rgba(47,111,237,.08) !important;
+        box-shadow: inset 3px 0 0 rgba(47,111,237,.35);
         border-radius: 4px;
       }`;
     document.documentElement.appendChild(s);
   }
 
   function clearHighlights() {
-    document.querySelectorAll('.mrt-plus-active').forEach((el) => el.classList.remove('mrt-plus-active'));
+    document.querySelectorAll('.mrt-plus-active, .mrt-plus-done').forEach((el) => {
+      el.classList.remove('mrt-plus-active', 'mrt-plus-done');
+    });
+    lastHighlightKey = '';
+  }
+
+  function audioProgress() {
+    const cur = audioEl;
+    if (!cur || !Number.isFinite(cur.duration) || cur.duration <= 0) return 0;
+    if (!Number.isFinite(cur.currentTime)) return 0;
+    return Math.min(1, Math.max(0, cur.currentTime / cur.duration));
+  }
+
+  /** Подсветка текущего абзаца по прогрессу аудио внутри блока */
+  function highlightProgress(session, { forceScroll = false } = {}) {
+    const unit = session?.units?.[session.index];
+    if (!unit?.ranges?.length) {
+      highlightUnit(session);
+      return;
+    }
+
+    const progress = session.audioConfirmed && !session.paused ? audioProgress() : 0;
+    const pos = progress * unit.text.length;
+    let active = unit.ranges[0];
+    for (const r of unit.ranges) {
+      if (pos >= r.start) active = r;
+      if (pos < r.end) {
+        active = r;
+        break;
+      }
+    }
+
+    const key = `${session.index}:${active.pid}:${Math.floor(progress * 40)}`;
+    // классы обновляем при смене абзаца; скролл — только тогда
+    const paragraphChanged = lastHighlightKey.split(':').slice(0, 2).join(':') !== `${session.index}:${active.pid}`;
+    if (key === lastHighlightKey && !forceScroll) return;
+    lastHighlightKey = key;
+
+    document.querySelectorAll('.mrt-plus-active, .mrt-plus-done').forEach((el) => {
+      el.classList.remove('mrt-plus-active', 'mrt-plus-done');
+    });
+
+    let activeEl = null;
+    for (const r of unit.ranges) {
+      const el = paragraphMap.get(r.pid) || document.querySelector(`[data-mrt-plus-pid="${r.pid}"]`);
+      if (!el) continue;
+      if (r.end <= pos + 0.5) el.classList.add('mrt-plus-done');
+      else if (r.pid === active.pid) {
+        el.classList.add('mrt-plus-active');
+        activeEl = el;
+      }
+    }
+    if (!activeEl) {
+      activeEl = paragraphMap.get(active.pid) || document.querySelector(`[data-mrt-plus-pid="${active.pid}"]`);
+      activeEl?.classList.add('mrt-plus-active');
+    }
+
+    if ((paragraphChanged || forceScroll) && activeEl) {
+      try {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (_) {}
+    }
   }
 
   function highlightUnit(session) {
@@ -313,7 +380,7 @@
 
     await GM.setValue(SESSION_KEY, session);
     setTransportUi({ playing: true, paused: false });
-    highlightUnit(session);
+    highlightProgress(session, { forceScroll: true });
     setStatus(formatStatus(session));
 
     try {
@@ -373,7 +440,7 @@
       session.error = null;
       session.ts = Date.now();
       await GM.setValue(SESSION_KEY, session);
-      highlightUnit(session);
+      highlightProgress(session, { forceScroll: true });
       setStatus(formatStatus(session));
 
       const ogg = await nextOggPromise;
@@ -465,6 +532,7 @@
             }
           } else if (s.audioConfirmed) {
             setStatus(formatStatus(s, '▶'));
+            highlightProgress(s);
           }
           if (audioEl && !audioEl.paused && !audioEl.ended) {
             setTimeout(tick, 500);
@@ -522,7 +590,7 @@
     session.ts = Date.now();
     await GM.setValue(SESSION_KEY, session);
     rebuildParagraphMapFromDom();
-    highlightUnit(session);
+    highlightProgress(session, { forceScroll: true });
 
     // если аудио на паузе в середине блока — продолжить элемент
     if (audioEl && audioEl.src && !audioEl.ended && audioEl.currentTime > 0) {
@@ -795,7 +863,17 @@
 
     let units = pack(paragraphs, UNIT_TARGET, HARD_MAX);
     if (title && units.length && !units[0].text.startsWith(title)) {
-      units[0] = { text: `${title}\n\n${units[0].text}`, pids: units[0].pids };
+      const prefix = `${title}\n\n`;
+      const shift = prefix.length;
+      units[0] = {
+        text: prefix + units[0].text,
+        pids: units[0].pids,
+        ranges: (units[0].ranges || []).map((r) => ({
+          pid: r.pid,
+          start: r.start + shift,
+          end: r.end + shift,
+        })),
+      };
     }
     return { chunks: units.map((u) => u.text), units };
   }
@@ -869,16 +947,36 @@
     const units = [];
     let buf = [];
     let size = 0;
+
     const flush = () => {
       if (!buf.length) return;
-      units.push({ text: buf.map((p) => p.text).join('\n\n'), pids: buf.map((p) => p.id) });
+      const parts = [];
+      const ranges = [];
+      let offset = 0;
+      for (const p of buf) {
+        if (parts.length) offset += 2; // \n\n
+        const start = offset;
+        parts.push(p.text);
+        offset += p.text.length;
+        ranges.push({ pid: p.id, start, end: offset });
+      }
+      units.push({
+        text: parts.join('\n\n'),
+        pids: buf.map((p) => p.id),
+        ranges,
+      });
       buf = [];
       size = 0;
     };
+
     for (const p of paragraphs) {
       if (p.text.length > hardMax) {
         flush();
-        units.push({ text: p.text.slice(0, hardMax), pids: [p.id] });
+        units.push({
+          text: p.text.slice(0, hardMax),
+          pids: [p.id],
+          ranges: [{ pid: p.id, start: 0, end: Math.min(hardMax, p.text.length) }],
+        });
         continue;
       }
       if (size && size + p.text.length + 2 > hardMax) flush();
