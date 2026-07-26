@@ -6,7 +6,7 @@ Userscript для [Tampermonkey](https://www.tampermonkey.net/): читает о
 | --- | --- |
 | **Горячая клавиша** | `Alt+R` |
 | **Браузеры** | Firefox, Chrome, Яндекс.Браузер (+ Tampermonkey) |
-| **Версия** | 1.6.8 |
+| **Версия** | 1.6.9 |
 
 ## Установка
 

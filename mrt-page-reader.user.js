@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.8
+// @version      1.6.9
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -27,6 +27,9 @@
   const UNIT_TARGET = 1600;
   const HARD_MAX = 4500;
   const TITLE_PID = 0;
+  // подсветка чуть впереди линейной карты символ↔время (иначе отстаёт от речи)
+  const HIGHLIGHT_LEAD_RATIO = 0.07;
+  const HIGHLIGHT_LEAD_CHARS = 48;
   const HOST_ID = 'mrt-plus-host';
   const STYLE_ID = 'mrt-plus-highlight-style';
   const HOTKEY_CODE = 'KeyR';
@@ -157,6 +160,16 @@
     return Math.min(1, Math.max(0, cur.currentTime / cur.duration));
   }
 
+  /** Позиция в тексте с небольшим опережением — речь Yandex обычно «впереди» сырой линейной карты. */
+  function audioPosInText(text, progress) {
+    const len = text?.length || 0;
+    if (!len) return 0;
+    const p = Math.min(1, Math.max(0, progress));
+    // процент + фиксированный запас символов; к концу блока lead гасим
+    const lead = HIGHLIGHT_LEAD_CHARS * (1 - p) + len * HIGHLIGHT_LEAD_RATIO * (1 - p);
+    return Math.min(len, p * len + lead);
+  }
+
   /** Подсветка текущего абзаца по прогрессу аудио внутри блока */
   function highlightProgress(session, { forceScroll = false } = {}) {
     const unit = session?.units?.[session.index];
@@ -166,7 +179,7 @@
     }
 
     const progress = session.audioConfirmed && !session.paused ? audioProgress() : 0;
-    const pos = progress * unit.text.length;
+    const pos = audioPosInText(unit.text, progress);
     let active = unit.ranges[0];
     for (const r of unit.ranges) {
       if (pos >= r.start) active = r;
@@ -176,7 +189,7 @@
       }
     }
 
-    const key = `${session.index}:${active.pid}:${Math.floor(progress * 40)}`;
+    const key = `${session.index}:${active.pid}:${Math.floor(progress * 80)}`;
     // классы обновляем при смене абзаца; скролл — только тогда
     const paragraphChanged = lastHighlightKey.split(':').slice(0, 2).join(':') !== `${session.index}:${active.pid}`;
     if (key === lastHighlightKey && !forceScroll) return;
@@ -577,10 +590,10 @@
             highlightProgress(s);
           }
           if (audioEl && !audioEl.paused && !audioEl.ended) {
-            setTimeout(tick, 500);
+            setTimeout(tick, 200);
           }
         };
-        setTimeout(tick, 400);
+        setTimeout(tick, 150);
       } catch (e) {
         reject(e);
       }
