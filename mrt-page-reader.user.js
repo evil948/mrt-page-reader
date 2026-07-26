@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.10
+// @version      1.6.11
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -38,20 +38,23 @@
   const SPEECHKIT_KEY = 'bf4277fc-06c0-405a-b278-b796bbbd3f27';
   const UNIPROXY_URL = 'wss://uniproxy.alice.yandex.net/uni.ws';
   const TTS_FORMAT = 'audio/opus'; // сервер отдаёт Ogg Opus
-  // Только голоса, которые реально отвечают через Uniproxy (Alice/Translate).
-  // Levitan / filipp / alena и др. из старых списков MRT сейчас недоступны.
+  // Только «нормальные» голоса, которые реально отвечают через Uniproxy.
+  // Cloud-голоса (filipp, alena, dasha…) и эффектные (zombie, robot, dude, smoky) — нет.
   const VOICES = [
     { id: 'zahar', label: 'Zahar' },
     { id: 'ermil', label: 'Ermil' },
+    { id: 'ermilov', label: 'Ermilov' },
     { id: 'oksana', label: 'Oksana' },
     { id: 'jane', label: 'Jane' },
     { id: 'omazh', label: 'Omazh' },
     { id: 'nastya', label: 'Nastya' },
     { id: 'sasha', label: 'Sasha' },
+    { id: 'alyss', label: 'Alyss' },
     { id: 'kolya', label: 'Kolya' },
     { id: 'kostya', label: 'Kostya' },
     { id: 'anton_samokhvalov', label: 'Anton' },
     { id: 'tatyana_shitova', label: 'Alice' },
+    { id: 'tatyana_abramova', label: 'Tatyana' },
   ];
   const VOICE_IDS = new Set(VOICES.map((v) => v.id));
   const DEFAULT_PREFS = {
