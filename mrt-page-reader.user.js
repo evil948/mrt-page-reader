@@ -1,16 +1,16 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.5.7
-// @description  Озвучка статьи через MRT (голоса Яндекса): Alt+R, подсветка, таймер
+// @version      1.6.0
+// @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
-// @match        https://alkohole.github.io/machine-reading-text/*
 // @updateURL    https://raw.githubusercontent.com/evil948/mrt-page-reader/main/mrt-page-reader.user.js
 // @downloadURL  https://raw.githubusercontent.com/evil948/mrt-page-reader/main/mrt-page-reader.user.js
 // @grant        GM.setValue
 // @grant        GM.getValue
 // @grant        GM.registerMenuCommand
+// @connect      uniproxy.alice.yandex.net
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -18,36 +18,54 @@
   'use strict';
 
   /**
-   * MRT (alkohole.github.io) + Яндекс SpeechKit (Web Audio).
-   * Автозвук: пробуем popup по клику «Озвучить» (жест сохраняется);
-   * иначе iframe — один клик «Старт» из‑за политики браузера.
+   * Прямая озвучка через тот же Uniproxy (Alice/Yandex Translate), что использует MRT.
+   * Звук играет в этой вкладке → клик «Озвучить» / Alt+R разблокирует автозвук.
    */
 
-  const MRT_URL = 'https://alkohole.github.io/machine-reading-text/index.html';
   const SESSION_KEY = 'mrt_plus_session';
   const PREFS_KEY = 'mrt_plus_prefs';
   const UNIT_TARGET = 1600;
-  const HARD_MAX = 19000;
+  const HARD_MAX = 4500;
   const HOST_ID = 'mrt-plus-host';
   const STYLE_ID = 'mrt-plus-highlight-style';
   const HOTKEY_CODE = 'KeyR';
   const CHARS_PER_MIN = 900;
-  const DEFAULT_PREFS = { showPanel: true, offsetRight: 16, offsetBottom: 16 };
+  // Публичный browser-ключ из MRT / Yandex Translate
+  const SPEECHKIT_KEY = 'bf4277fc-06c0-405a-b278-b796bbbd3f27';
+  const UNIPROXY_URL = 'wss://uniproxy.alice.yandex.net/uni.ws';
+  const TTS_FORMAT = 'audio/opus'; // сервер отдаёт Ogg Opus
+  const VOICES = [
+    { id: 'zahar', label: 'Zahar' },
+    { id: 'ermil', label: 'Ermil' },
+    { id: 'oksana', label: 'Oksana' },
+    { id: 'jane', label: 'Jane' },
+    { id: 'omazh', label: 'Omazh' },
+    { id: 'nastya', label: 'Nastya' },
+    { id: 'sasha', label: 'Sasha' },
+    { id: 'levitan', label: 'Levitan' },
+    { id: 'kolya', label: 'Kolya' },
+    { id: 'kostya', label: 'Kostya' },
+    { id: 'anton_samokhvalov', label: 'Anton' },
+    { id: 'tatyana_shitova', label: 'Alice' },
+  ];
+  const DEFAULT_PREFS = {
+    voice: 'zahar',
+    emotion: 'neutral',
+    speed: 1,
+    offsetRight: 16,
+    offsetBottom: 16,
+  };
 
   let prefs = { ...DEFAULT_PREFS };
   let paragraphMap = new Map();
   let isPlaying = false;
   let isPaused = false;
-  let playerPopup = null;
+  let audioEl = null;
+  let audioUrl = null;
+  let audioCtx = null;
+  let ttsClient = null;
+  let runToken = 0;
 
-  const isMrtUi =
-    location.hostname === 'alkohole.github.io' &&
-    location.pathname.includes('machine-reading-text');
-
-  if (isMrtUi) {
-    bootMrtReceiver();
-    return;
-  }
   if (window !== window.top) return;
 
   initParent();
@@ -66,14 +84,12 @@
     const root = document.getElementById(HOST_ID)?.shadowRoot;
     return {
       root,
-      wrap: root?.getElementById('wrap'),
-      panel: root?.getElementById('panel'),
-      frame: root?.getElementById('frame'),
       status: root?.getElementById('status'),
       speakBtn: root?.getElementById('speak'),
       pauseBtn: root?.getElementById('pause'),
       resumeBtn: root?.getElementById('resume'),
       stopBtn: root?.getElementById('stop'),
+      voiceSel: root?.getElementById('voice'),
     };
   }
 
@@ -134,27 +150,24 @@
     host.style.cssText = 'all:initial;position:fixed;z-index:2147483646;';
     document.documentElement.appendChild(host);
     const root = host.attachShadow({ mode: 'open' });
+    const voiceOpts = VOICES.map(
+      (v) => `<option value="${v.id}" ${prefs.voice === v.id ? 'selected' : ''}>${v.label}</option>`
+    ).join('');
     root.innerHTML = `
       <style>
         .wrap{position:fixed;right:${prefs.offsetRight}px;bottom:${prefs.offsetBottom}px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font-family:Segoe UI,system-ui,sans-serif}
-        button{border:0;cursor:pointer;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25);color:#fff;font-size:13px;font-weight:600;padding:10px 14px;display:inline-flex;gap:8px;align-items:center}
-        .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+        button,select{border:0;cursor:pointer;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25);color:#fff;font-size:13px;font-weight:600;padding:10px 14px}
+        select{background:#3a3a3c;appearance:none;padding-right:28px}
+        .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
         .main{background:#2f6fed}.pause{background:#c48a16;display:none}.resume{background:#2f9e44;display:none}.stop{background:#d94848;display:none}
-        .kbd{opacity:.85;font-size:11px;background:rgba(255,255,255,.18);padding:2px 6px;border-radius:6px}
-        .panel{display:none;width:min(360px,calc(100vw - 24px));height:520px;background:#1c1c1e;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 12px 40px rgba(0,0,0,.35)}
-        .panel.open{display:block}
-        iframe{width:100%;height:100%;border:0;background:#f4f1ea}
-        .close{position:absolute;top:8px;right:8px;z-index:2;width:28px;height:28px;padding:0;justify-content:center;background:#ff5e5e}
+        .kbd{opacity:.85;font-size:11px;background:rgba(255,255,255,.18);padding:2px 6px;border-radius:6px;margin-left:6px}
         .status{max-width:340px;background:rgba(20,20,20,.92);color:#fff;font-size:12px;padding:8px 10px;border-radius:8px;display:none;white-space:pre-wrap}
         .status.show{display:block}
       </style>
       <div class="wrap" id="wrap">
         <div class="status" id="status"></div>
-        <div class="panel" id="panel">
-          <button class="close" id="close" type="button">×</button>
-          <iframe id="frame" title="MRT" allow="autoplay; fullscreen"></iframe>
-        </div>
         <div class="row">
+          <select id="voice" title="Голос Яндекса">${voiceOpts}</select>
           <button class="pause" id="pause" type="button">⏸ Пауза</button>
           <button class="resume" id="resume" type="button">▶ Далее</button>
           <button class="stop" id="stop" type="button">■ Стоп</button>
@@ -166,7 +179,10 @@
     root.getElementById('pause').onclick = () => togglePause(true);
     root.getElementById('resume').onclick = () => resumePlayback();
     root.getElementById('stop').onclick = () => stopPlayback();
-    root.getElementById('close').onclick = () => ui().panel?.classList.remove('open');
+    root.getElementById('voice').onchange = async (e) => {
+      prefs.voice = e.target.value;
+      await GM.setValue(PREFS_KEY, prefs);
+    };
   }
 
   function bindHotkey() {
@@ -187,12 +203,31 @@
     );
   }
 
-  function postToFrame(msg) {
+  function unlockAudio() {
     try {
-      ui().frame?.contentWindow?.postMessage(msg, '*');
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) {
+        audioCtx = audioCtx || new AC();
+        audioCtx.resume?.();
+      }
     } catch (_) {}
     try {
-      if (playerPopup && !playerPopup.closed) playerPopup.postMessage(msg, '*');
+      if (!audioEl) {
+        audioEl = new Audio();
+        audioEl.preload = 'auto';
+      }
+      // тихий unlock в том же жесте пользователя
+      audioEl.muted = true;
+      const p = audioEl.play();
+      if (p?.then) {
+        p.then(() => {
+          audioEl.pause();
+          audioEl.muted = false;
+          audioEl.removeAttribute('src');
+        }).catch(() => {
+          audioEl.muted = false;
+        });
+      }
     } catch (_) {}
   }
 
@@ -209,22 +244,17 @@
   }
 
   function formatStatus(session, prefix = '▶') {
-    if (session?.needsGesture) {
-      return session.mode === 'popup'
-        ? 'В окне MRT нажмите ▶ Старт — один раз.'
-        : 'Текст в панели MRT готов.\nНажмите ▶ Старт в панели — один раз (иначе браузер глушит звук).';
-    }
     const n = session.chunks?.length || 1;
     const i = Math.min((session.index || 0) + 1, n);
     const head = n > 1 ? `Блок ${i}/${n}` : 'Озвучка';
-    if (!session?.audioConfirmed && !session?.paused) {
-      return session.mode === 'popup' ? `Окно MRT… ${head}` : `Готовлю MRT… ${head}`;
-    }
-    return `${prefix} ${head} · осталось ${eta(session)}`;
+    const voice = VOICES.find((v) => v.id === (prefs.voice || 'zahar'))?.label || prefs.voice;
+    if (!session?.audioConfirmed && !session?.paused) return `Готовлю Яндекс… ${head} · ${voice}`;
+    return `${prefix} ${head} · ${voice} · осталось ${eta(session)}`;
   }
 
   async function startSpeak({ selectionOnly = false, resumeSession = null } = {}) {
-    const { panel, frame } = ui();
+    unlockAudio();
+    const token = ++runToken;
     let session = resumeSession;
 
     if (!session) {
@@ -245,8 +275,8 @@
         done: false,
         error: null,
         audioConfirmed: false,
-        needsGesture: false,
         chunkStartedAt: null,
+        mode: 'direct',
         ts: Date.now(),
       };
     } else {
@@ -256,43 +286,184 @@
         done: false,
         error: null,
         audioConfirmed: false,
-        needsGesture: false,
+        mode: 'direct',
         ts: Date.now(),
       });
       rebuildParagraphMapFromDom();
     }
 
-    const playUrl = `${MRT_URL}?mrtplus=${encodeURIComponent(session.id)}&t=${Date.now()}`;
-
-    // Popup открывается в том же пользовательском жесте, что и «Озвучить» —
-    // браузер чаще разрешает автозвук, чем во вложенном iframe.
-    let popup = null;
-    try {
-      popup = window.open(playUrl, 'mrt_plus_player', 'popup=yes,width=400,height=720');
-    } catch (_) {
-      popup = null;
-    }
-    const usePopup = Boolean(popup && !popup.closed);
-    session.mode = usePopup ? 'popup' : 'iframe';
-    playerPopup = usePopup ? popup : null;
-
     await GM.setValue(SESSION_KEY, session);
-    setTransportUi({ playing: false, paused: false });
+    setTransportUi({ playing: true, paused: false });
     highlightUnit(session);
+    setStatus(formatStatus(session));
 
-    if (usePopup) {
-      panel?.classList.remove('open');
-      if (frame) frame.src = 'about:blank';
-      setStatus('Озвучка в окне MRT (Яндекс)…\nНе закрывайте его до конца статьи.');
-      try {
-        popup.focus();
-      } catch (_) {}
-    } else {
-      setStatus('Открываю MRT (Яндекс)…');
-      panel?.classList.add('open');
-      if (frame) frame.src = playUrl;
+    try {
+      await playSession(session, token);
+    } catch (err) {
+      if (token !== runToken) return;
+      setTransportUi({ playing: false, paused: true });
+      setStatus(`Ошибка TTS: ${err?.message || err}\n«▶ Далее» — повторить.`);
     }
-    watchSession(session.id);
+  }
+
+  async function playSession(session, token) {
+    ttsClient = ttsClient || new UniproxyTTS(SPEECHKIT_KEY);
+    await ttsClient.connect();
+
+    while (session.index < session.chunks.length) {
+      if (token !== runToken) return;
+      session = (await GM.getValue(SESSION_KEY, null)) || session;
+      if (!session || session.stopped) {
+        stopAudio();
+        return;
+      }
+      while (session.paused) {
+        await sleep(300);
+        session = (await GM.getValue(SESSION_KEY, null)) || session;
+        if (!session || session.stopped || token !== runToken) {
+          stopAudio();
+          return;
+        }
+      }
+
+      const chunk = session.chunks[session.index];
+      session.audioConfirmed = false;
+      session.chunkStartedAt = null;
+      session.error = null;
+      session.ts = Date.now();
+      await GM.setValue(SESSION_KEY, session);
+      highlightUnit(session);
+      setStatus(formatStatus(session));
+
+      let ogg;
+      try {
+        ogg = await ttsClient.synthesize(chunk, {
+          voice: prefs.voice || 'zahar',
+          emotion: prefs.emotion || 'neutral',
+          speed: Number(prefs.speed) || 1,
+          lang: 'ru-RU',
+        });
+      } catch (err) {
+        // одно переподключение на блок
+        try {
+          ttsClient.close();
+        } catch (_) {}
+        ttsClient = new UniproxyTTS(SPEECHKIT_KEY);
+        await ttsClient.connect();
+        ogg = await ttsClient.synthesize(chunk, {
+          voice: prefs.voice || 'zahar',
+          emotion: prefs.emotion || 'neutral',
+          speed: Number(prefs.speed) || 1,
+          lang: 'ru-RU',
+        });
+      }
+      if (token !== runToken) return;
+
+      session = (await GM.getValue(SESSION_KEY, null)) || session;
+      if (!session || session.stopped) {
+        stopAudio();
+        return;
+      }
+
+      session.audioConfirmed = true;
+      session.chunkStartedAt = Date.now();
+      await GM.setValue(SESSION_KEY, session);
+      setTransportUi({ playing: true, paused: false });
+      setStatus(formatStatus(session, '▶'));
+
+      await playOgg(ogg, () => {
+        /* pause check via session */
+      });
+
+      if (token !== runToken) return;
+      session = (await GM.getValue(SESSION_KEY, null)) || session;
+      if (!session || session.stopped) return;
+      if (session.paused) continue;
+
+      session.index += 1;
+      session.audioConfirmed = false;
+      session.chunkStartedAt = null;
+      await GM.setValue(SESSION_KEY, session);
+    }
+
+    session = (await GM.getValue(SESSION_KEY, null)) || session;
+    if (!session) return;
+    session.done = true;
+    await GM.setValue(SESSION_KEY, session);
+    clearHighlights();
+    setTransportUi({ playing: false, paused: false });
+    setStatus(session.chunks.length > 1 ? `Готово: ${session.chunks.length} блоков.` : 'Готово.');
+  }
+
+  function playOgg(bytes) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        stopAudio(false);
+        const blob = new Blob([bytes], { type: 'audio/ogg' });
+        audioUrl = URL.createObjectURL(blob);
+        audioEl = audioEl || new Audio();
+        audioEl.src = audioUrl;
+        audioEl.onended = () => resolve();
+        audioEl.onerror = () => reject(new Error('не удалось проиграть аудио'));
+        const p = audioEl.play();
+        if (p?.catch) await p;
+        // пауза через session.paused
+        const tick = async () => {
+          const s = await GM.getValue(SESSION_KEY, null);
+          if (!s || s.stopped) {
+            stopAudio();
+            resolve();
+            return;
+          }
+          if (s.paused) {
+            try {
+              audioEl.pause();
+            } catch (_) {}
+            while (true) {
+              await sleep(300);
+              const s2 = await GM.getValue(SESSION_KEY, null);
+              if (!s2 || s2.stopped) {
+                stopAudio();
+                resolve();
+                return;
+              }
+              if (!s2.paused) {
+                try {
+                  await audioEl.play();
+                } catch (_) {}
+                break;
+              }
+            }
+          }
+          if (audioEl && !audioEl.paused && !audioEl.ended) {
+            setTimeout(tick, 400);
+          }
+        };
+        setTimeout(tick, 400);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function stopAudio(clearSrc = true) {
+    try {
+      if (audioEl) {
+        audioEl.onended = null;
+        audioEl.onerror = null;
+        audioEl.pause();
+        if (clearSrc) {
+          audioEl.removeAttribute('src');
+          audioEl.load?.();
+        }
+      }
+    } catch (_) {}
+    if (audioUrl) {
+      try {
+        URL.revokeObjectURL(audioUrl);
+      } catch (_) {}
+      audioUrl = null;
+    }
   }
 
   async function togglePause(force) {
@@ -301,7 +472,9 @@
     if (force || !session.paused) {
       session.paused = true;
       await GM.setValue(SESSION_KEY, session);
-      postToFrame({ type: 'mrt-plus-pause' });
+      try {
+        audioEl?.pause();
+      } catch (_) {}
       setTransportUi({ playing: true, paused: true });
       setStatus(formatStatus(session, '⏸'));
     } else resumePlayback();
@@ -313,41 +486,40 @@
       setStatus('Нечего продолжать.');
       return;
     }
-    const { frame, panel } = ui();
-    const dead = !frame || !frame.src || frame.src === 'about:blank';
     session.stopped = false;
     session.paused = false;
-    session.needsGesture = false;
+    session.ts = Date.now();
     await GM.setValue(SESSION_KEY, session);
     rebuildParagraphMapFromDom();
     highlightUnit(session);
-    panel?.classList.add('open');
-    setTransportUi({ playing: true, paused: false });
-    setStatus(formatStatus(session, '▶'));
-    if (dead) {
-      await startSpeak({ resumeSession: session });
+
+    // если аудио на паузе в середине блока — продолжить элемент
+    if (audioEl && audioEl.src && !audioEl.ended && audioEl.currentTime > 0) {
+      unlockAudio();
+      setTransportUi({ playing: true, paused: false });
+      setStatus(formatStatus(session, '▶'));
+      try {
+        await audioEl.play();
+      } catch (_) {
+        await startSpeak({ resumeSession: session });
+      }
       return;
     }
-    postToFrame({ type: 'mrt-plus-resume' });
-    watchSession(session.id);
+    unlockAudio();
+    await startSpeak({ resumeSession: session });
   }
 
   async function stopPlayback() {
+    runToken += 1;
     const session = (await GM.getValue(SESSION_KEY, null)) || {};
     session.stopped = true;
     session.paused = false;
     await GM.setValue(SESSION_KEY, session);
-    postToFrame({ type: 'mrt-plus-stop' });
-    const { frame, panel } = ui();
-    if (frame) frame.src = 'about:blank';
-    panel?.classList.remove('open');
+    stopAudio();
     try {
-      if (playerPopup && !playerPopup.closed) playerPopup.close();
+      ttsClient?.close();
     } catch (_) {}
-    playerPopup = null;
-    try {
-      window.open('', 'mrt_plus_player')?.close();
-    } catch (_) {}
+    ttsClient = null;
     if (session.chunks?.length && !session.done && session.index < session.chunks.length) {
       setTransportUi({ playing: false, paused: true });
       setStatus(`Остановлено. ${formatStatus(session, '■')}\n«▶ Далее» — продолжить.`);
@@ -358,49 +530,6 @@
     }
   }
 
-  async function watchSession(sessionId) {
-    let last = -1;
-    const t0 = Date.now();
-    while (Date.now() - t0 < 6 * 60 * 60 * 1000) {
-      await sleep(600);
-      const session = await GM.getValue(SESSION_KEY, null);
-      if (!session || session.id !== sessionId) return;
-      if (session.error) {
-        setTransportUi({ playing: false, paused: true });
-        setStatus(`Ошибка: ${session.error}`);
-        return;
-      }
-      if (session.stopped && !session.paused) return;
-      if (session.needsGesture) {
-        ui().panel?.classList.add('open');
-        setTransportUi({ playing: false, paused: false });
-        setStatus(formatStatus(session));
-        continue;
-      }
-      if (session.paused) {
-        setTransportUi({ playing: true, paused: true });
-        setStatus(formatStatus(session, '⏸'));
-        continue;
-      }
-      if (session.done) {
-        clearHighlights();
-        setTransportUi({ playing: false, paused: false });
-        setStatus(session.chunks.length > 1 ? `Готово: ${session.chunks.length} блоков.` : 'Готово.');
-        return;
-      }
-      if (session.index !== last) {
-        last = session.index;
-        highlightUnit(session);
-      }
-      if (session.audioConfirmed) {
-        setTransportUi({ playing: true, paused: false });
-        setStatus(formatStatus(session, '▶'));
-      } else {
-        setStatus(formatStatus(session));
-      }
-    }
-  }
-
   function rebuildParagraphMapFromDom() {
     paragraphMap = new Map();
     document.querySelectorAll('[data-mrt-plus-pid]').forEach((el) => {
@@ -408,6 +537,192 @@
       if (Number.isFinite(id)) paragraphMap.set(id, el);
     });
   }
+
+  // ---------------- Yandex Uniproxy TTS ----------------
+
+  class UniproxyTTS {
+    constructor(apiKey) {
+      this.apiKey = apiKey;
+      this.ws = null;
+      this.seq = 1;
+      this.uuid = guid();
+      this.pending = null;
+    }
+
+    connect() {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const ws = new WebSocket(UNIPROXY_URL);
+        this.ws = ws;
+        ws.binaryType = 'arraybuffer';
+        const timer = setTimeout(() => reject(new Error('таймаут Uniproxy')), 12000);
+        ws.onopen = () => {
+          this.sendEvent('System', 'SynchronizeState', {
+            uuid: this.uuid,
+            auth_token: this.apiKey,
+            vins: {
+              application: {
+                lang: 'ru',
+                platform: 'windows',
+                uuid: this.uuid,
+                app_id: 'ru.yandex.translate.desktop',
+              },
+            },
+          });
+        };
+        ws.onerror = () => {
+          clearTimeout(timer);
+          reject(new Error('WebSocket Uniproxy'));
+        };
+        ws.onclose = () => {
+          this.ws = null;
+        };
+        ws.onmessage = (ev) => {
+          if (typeof ev.data === 'string') {
+            let msg;
+            try {
+              msg = JSON.parse(ev.data);
+            } catch (_) {
+              return;
+            }
+            if (msg?.directive?.header?.name === 'SynchronizeStateResponse') {
+              clearTimeout(timer);
+              resolve();
+              return;
+            }
+            this._onJson(msg);
+            return;
+          }
+          if (ev.data instanceof ArrayBuffer) this._onBinary(ev.data);
+        };
+      });
+    }
+
+    close() {
+      try {
+        this.ws?.close();
+      } catch (_) {}
+      this.ws = null;
+      this.pending = null;
+    }
+
+    sendEvent(namespace, name, payload = {}) {
+      const messageId = guid();
+      const { streamId, ...rest } = payload;
+      const packet = {
+        event: {
+          header: {
+            namespace,
+            name,
+            messageId,
+            streamId,
+            seqNumber: this.seq++,
+          },
+          payload: rest,
+        },
+      };
+      this.ws.send(JSON.stringify(packet));
+      return messageId;
+    }
+
+    synthesize(text, { voice = 'zahar', lang = 'ru-RU', speed = 1, emotion = 'neutral' } = {}) {
+      return new Promise((resolve, reject) => {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          reject(new Error('нет соединения Uniproxy'));
+          return;
+        }
+        const chunks = [];
+        let streamId = null;
+        const self = this;
+        const timer = setTimeout(() => {
+          self.pending = null;
+          reject(new Error('таймаут синтеза'));
+        }, 60000);
+
+        const messageId = this.sendEvent('tts', 'Generate', {
+          text,
+          lang,
+          voice,
+          speed,
+          emotion,
+          format: TTS_FORMAT,
+        });
+
+        this.pending = {
+          messageId,
+          onSpeak(id) {
+            streamId = id;
+          },
+          onData(sid, buf) {
+            if (streamId == null) streamId = sid;
+            if (sid === streamId) chunks.push(new Uint8Array(buf));
+          },
+          onClose(sid) {
+            if (streamId != null && sid !== streamId) return;
+            clearTimeout(timer);
+            self.pending = null;
+            if (!chunks.length) {
+              reject(new Error('пустой ответ TTS'));
+              return;
+            }
+            const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+            let off = 0;
+            for (const c of chunks) {
+              out.set(c, off);
+              off += c.length;
+            }
+            resolve(out.buffer);
+          },
+          onError(err) {
+            clearTimeout(timer);
+            self.pending = null;
+            reject(new Error(err || 'ошибка TTS'));
+          },
+        };
+      });
+    }
+
+    _onJson(msg) {
+      const p = this.pending;
+      if (!p) return;
+      if (msg?.directive) {
+        const d = msg.directive;
+        const h = d.header || {};
+        if (h.namespace === 'System' && (h.name === 'EventException' || h.name === 'InvalidAuth')) {
+          p.onError(d.payload?.error?.message || h.name);
+          return;
+        }
+        if (h.namespace === 'TTS' && h.name === 'Speak' && h.refMessageId === p.messageId) {
+          if (h.streamId != null) p.onSpeak(h.streamId);
+          else p.onError('нет streamId');
+        }
+        return;
+      }
+      if (msg?.streamcontrol) {
+        const sc = msg.streamcontrol;
+        // CLOSE = 0
+        if (sc.action === 0 || sc.action === 'close') p.onClose(sc.streamId);
+      }
+    }
+
+    _onBinary(buf) {
+      const p = this.pending;
+      if (!p || buf.byteLength < 4) return;
+      const sid = new DataView(buf).getUint32(0);
+      p.onData(sid, buf.slice(4));
+    }
+  }
+
+  function guid() {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  // ---------------- Article extraction ----------------
 
   function cyrRatio(text) {
     const letters = text.replace(/[^a-zA-Zа-яА-ЯёЁ]/g, '');
@@ -491,16 +806,8 @@
 
   function collectParagraphs(root) {
     if (!root) return [];
-
-    // Всегда берём и абзацы, и подзаголовки, и цитаты (раньше h2/h3 пропускались,
-    // если хватало обычных <p> — из‑за этого выпадали куски вроде «Петер Мадьяр…»)
-    let nodes = [
-      ...root.querySelectorAll('p, h2, h3, h4, li, blockquote'),
-    ];
-
-    // убрать обёртки, если внутри уже есть текстовые узлы из списка
+    let nodes = [...root.querySelectorAll('p, h2, h3, h4, li, blockquote')];
     nodes = nodes.filter((el, _, arr) => !arr.some((o) => o !== el && el.contains(o)));
-
     nodes.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
 
     const out = [];
@@ -513,22 +820,15 @@
       ) {
         continue;
       }
-
       const tag = el.tagName.toLowerCase();
       let text = scrub(normalize(el.innerText || ''));
       if (!text) continue;
       if (JUNK.test(text)) continue;
       if (cyrRatio(text) < 0.4) continue;
-
-      // подзаголовки и короткие реплики («— Кому угодно?») часто < 15 символов
       const isHeading = /^h[2-4]$/.test(tag);
       const isDialogue = /^[-–—]\s*\S/.test(text);
       const minLen = isHeading || isDialogue ? 6 : 12;
       if (text.length < minLen) continue;
-
-      // не резать огромные обёртки-blockquote целиком, если внутри уже разобрали p
-      // (такие blockquote отфильтрованы через contains выше)
-
       out.push({ id: id++, el, text });
     }
     return out;
@@ -568,10 +868,33 @@
   }
 
   const JUNK_NODE = [
-    'script','style','noscript','nav','footer','aside','form','iframe','button','svg',
-    '.share','.social','.comments','.related','.recomend','.recommend','.tags','.breadcrumb','.breadcrumbs',
-    '[class*="banner"]','[class*="advert"]','[class*="subscribe"]','[class*="newsletter"]',
-    '[class*="read-also"]','[class*="read_also"]','[class*="ReadAlso"]','[data-nosnippet]',
+    'script',
+    'style',
+    'noscript',
+    'nav',
+    'footer',
+    'aside',
+    'form',
+    'iframe',
+    'button',
+    'svg',
+    '.share',
+    '.social',
+    '.comments',
+    '.related',
+    '.recomend',
+    '.recommend',
+    '.tags',
+    '.breadcrumb',
+    '.breadcrumbs',
+    '[class*="banner"]',
+    '[class*="advert"]',
+    '[class*="subscribe"]',
+    '[class*="newsletter"]',
+    '[class*="read-also"]',
+    '[class*="read_also"]',
+    '[class*="ReadAlso"]',
+    '[data-nosnippet]',
   ].join(',');
 
   const SITE = {
@@ -630,310 +953,6 @@
     }
     if (rest) chunks.push(rest);
     return chunks.filter(Boolean);
-  }
-
-  // ---------------- MRT page (Яндекс TTS) ----------------
-
-  async function bootMrtReceiver() {
-    window.addEventListener('message', (e) => {
-      const t = e.data?.type;
-      if (t === 'mrt-plus-stop') forceStop(true);
-      if (t === 'mrt-plus-pause') forcePause();
-      if (t === 'mrt-plus-resume') forceResume();
-    });
-
-    const textarea = await waitFor(() => document.getElementById('textarea'), 20000);
-    const playBtn = await waitFor(() => document.getElementById('textSpeaker'), 20000);
-    if (!textarea || !playBtn) return;
-
-    const session = await GM.getValue(SESSION_KEY, null);
-    if (!session?.chunks?.length || session.stopped || session.done) return;
-    if (Date.now() - (session.ts || 0) > 30 * 60 * 1000) return;
-
-    await runLoop(textarea, playBtn);
-  }
-
-  async function runLoop(textarea, playBtn) {
-    let session = await GM.getValue(SESSION_KEY, null);
-    let unlocked = false;
-
-    while (session && session.index < session.chunks.length) {
-      session = (await GM.getValue(SESSION_KEY, null)) || session;
-      if (!session || session.stopped) {
-        forceStop(true);
-        return;
-      }
-      while (session.paused) {
-        await sleep(400);
-        session = (await GM.getValue(SESSION_KEY, null)) || session;
-        if (!session || session.stopped) {
-          forceStop(true);
-          return;
-        }
-      }
-
-      const chunk = session.chunks[session.index];
-      session.audioConfirmed = false;
-      session.needsGesture = false;
-      session.chunkStartedAt = null;
-      session.error = null;
-      session.ts = Date.now();
-      await GM.setValue(SESSION_KEY, session);
-
-      let ok = await playChunk(textarea, playBtn, chunk, session.id, !unlocked);
-      if (!ok && unlocked) {
-        // следующий блок иногда снова глушит автозвук — даём ещё один «Старт»
-        ok = await playChunk(textarea, playBtn, chunk, session.id, true);
-      }
-      if (ok) unlocked = true;
-
-      session = (await GM.getValue(SESSION_KEY, null)) || session;
-      if (!session || session.stopped) {
-        forceStop(true);
-        return;
-      }
-      if (session.paused) continue;
-      if (!ok) {
-        session.error = 'нет звука';
-        await GM.setValue(SESSION_KEY, session);
-        return;
-      }
-      session.index += 1;
-      session.audioConfirmed = false;
-      session.chunkStartedAt = null;
-      await GM.setValue(SESSION_KEY, session);
-      await sleep(700);
-    }
-
-    session = (await GM.getValue(SESSION_KEY, null)) || session;
-    if (!session) return;
-    session.done = true;
-    await GM.setValue(SESSION_KEY, session);
-  }
-
-  async function playChunk(textarea, playBtn, chunk, sessionId, allowGesture) {
-    textarea.value = chunk;
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.dispatchEvent(new Event('change', { bubbles: true }));
-    await sleep(500);
-    if (playBtn.textContent.includes('✖')) return false;
-
-    if (playBtn.classList.contains('state-playing')) {
-      playBtn.click();
-      await sleep(400);
-    }
-
-    resumeAudioContexts();
-    playBtn.click();
-    let audible = await waitAudible(5000);
-
-    if (!audible && allowGesture) {
-      await setFlag(sessionId, { needsGesture: true, audioConfirmed: false });
-      const clicked = await gestureOverlay(playBtn, sessionId);
-      await setFlag(sessionId, { needsGesture: false });
-      if (!clicked) return false;
-      audible = await waitAudible(12000);
-    }
-
-    if (!audible) {
-      resumeAudioContexts();
-      playBtn.click();
-      audible = await waitAudible(5000);
-    }
-
-    if (!audible) return false;
-
-    await setFlag(sessionId, { audioConfirmed: true, chunkStartedAt: Date.now(), needsGesture: false });
-
-    // ждём конца блока: MRT часто без <audio>, только Web Audio + state-playing
-    let sawPlaying = false;
-    const waitStart = Date.now();
-    while (true) {
-      const s = await GM.getValue(SESSION_KEY, null);
-      if (!s || s.id !== sessionId || s.stopped) {
-        forceStop(true);
-        return false;
-      }
-      if (s.paused) {
-        forcePause();
-        while (true) {
-          await sleep(400);
-          const s2 = await GM.getValue(SESSION_KEY, null);
-          if (!s2 || s2.id !== sessionId || s2.stopped) {
-            forceStop(true);
-            return false;
-          }
-          if (!s2.paused) {
-            forceResume();
-            break;
-          }
-        }
-      }
-
-      const playing = isMrtPlaying(playBtn);
-      if (playing) sawPlaying = true;
-      if (sawPlaying && !playing) {
-        await sleep(600);
-        if (!isMrtPlaying(playBtn)) break;
-      }
-      // страховка: если так и не увидели playing — не крутимся вечно
-      if (!sawPlaying && Date.now() - waitStart > 15000) return false;
-      await sleep(350);
-    }
-    await sleep(500);
-    return true;
-  }
-
-  async function setFlag(sessionId, patch) {
-    const s = await GM.getValue(SESSION_KEY, null);
-    if (!s || s.id !== sessionId) return;
-    Object.assign(s, patch, { ts: Date.now() });
-    await GM.setValue(SESSION_KEY, s);
-  }
-
-  function gestureOverlay(playBtn, sessionId) {
-    return new Promise((resolve) => {
-      let overlay = document.getElementById('mrt-plus-gesture');
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'mrt-plus-gesture';
-        overlay.innerHTML = `
-          <style>
-            #mrt-plus-gesture{position:fixed;inset:0;z-index:2147483647;display:none;align-items:center;justify-content:center;background:rgba(10,10,15,.75);font-family:Segoe UI,system-ui,sans-serif}
-            #mrt-plus-gesture .box{background:#1f2430;color:#fff;border-radius:16px;padding:22px;width:min(320px,calc(100vw - 32px));text-align:center}
-            #mrt-plus-gesture button{border:0;border-radius:999px;background:#2f6fed;color:#fff;font-weight:700;font-size:16px;padding:12px 18px;width:100%;cursor:pointer}
-          </style>
-          <div class="box">
-            <p style="margin:0 0 14px;line-height:1.4">Браузер блокирует автозвук.<br>Один клик — и дальше блоки пойдут сами (голос Яндекса).</p>
-            <button type="button" id="mrt-plus-go">▶ Старт</button>
-          </div>`;
-        document.documentElement.appendChild(overlay);
-      }
-      const btn = overlay.querySelector('#mrt-plus-go');
-      overlay.style.display = 'flex';
-      let done = false;
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        overlay.style.display = 'none';
-        resolve(ok);
-      };
-      btn.onclick = () => {
-        try {
-          resumeAudioContexts();
-          if (playBtn.classList.contains('state-playing')) playBtn.click();
-          playBtn.click();
-        } catch (_) {}
-        finish(true);
-      };
-      (async () => {
-        while (!done) {
-          const s = await GM.getValue(SESSION_KEY, null);
-          if (!s || s.id !== sessionId || s.stopped) {
-            finish(false);
-            return;
-          }
-          await sleep(400);
-        }
-      })();
-    });
-  }
-
-  function resumeAudioContexts() {
-    try {
-      const set = window.audioSources?.audioContexts;
-      if (!set) return;
-      for (const ctx of set) {
-        try {
-          if (ctx?.state === 'suspended') ctx.resume();
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
-  function anyHtmlAudio() {
-    try {
-      return [...document.querySelectorAll('audio')].some(
-        (a) => !a.paused && !a.ended && a.currentTime > 0.02
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function anyAudioContextRunning() {
-    try {
-      const set = window.audioSources?.audioContexts;
-      if (!set) return false;
-      for (const ctx of set) {
-        if (ctx && ctx.state === 'running') return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  function isMrtPlaying(playBtn) {
-    if (playBtn?.classList.contains('state-playing')) return true;
-    if (anyHtmlAudio()) return true;
-    if (anyAudioContextRunning()) return true;
-    return false;
-  }
-
-  async function waitAudible(ms) {
-    const t0 = Date.now();
-    const playBtn = document.getElementById('textSpeaker');
-    while (Date.now() - t0 < ms) {
-      if (isMrtPlaying(playBtn)) return true;
-      await sleep(150);
-    }
-    return isMrtPlaying(playBtn);
-  }
-
-  function forcePause() {
-    try {
-      const playBtn = document.getElementById('textSpeaker');
-      document.getElementById('speakerPause')?.click();
-      if (playBtn?.classList.contains('state-playing')) document.getElementById('speakerPause')?.click();
-      document.querySelectorAll('audio').forEach((a) => a.pause());
-      try {
-        const set = window.audioSources?.audioContexts;
-        if (set) for (const ctx of set) ctx.suspend?.();
-      } catch (_) {}
-    } catch (_) {}
-  }
-
-  function forceResume() {
-    try {
-      resumeAudioContexts();
-      document.getElementById('speakerPause')?.click();
-      document.querySelectorAll('audio').forEach((a) => a.play()?.catch?.(() => {}));
-    } catch (_) {}
-  }
-
-  function forceStop(reset) {
-    try {
-      const ov = document.getElementById('mrt-plus-gesture');
-      if (ov) ov.style.display = 'none';
-      const playBtn = document.getElementById('textSpeaker');
-      if (playBtn?.classList.contains('state-playing')) playBtn.click();
-      document.querySelectorAll('audio').forEach((a) => {
-        a.pause();
-        if (reset) a.currentTime = 0;
-      });
-    } catch (_) {}
-  }
-
-  function waitFor(fn, timeout) {
-    return new Promise((resolve) => {
-      const t0 = Date.now();
-      const tick = () => {
-        const v = fn();
-        if (v) return resolve(v);
-        if (Date.now() - t0 > timeout) return resolve(null);
-        setTimeout(tick, 100);
-      };
-      tick();
-    });
   }
 
   function sleep(ms) {
