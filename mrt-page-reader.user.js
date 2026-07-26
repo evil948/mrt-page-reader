@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.1
+// @version      1.6.2
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -232,13 +232,32 @@
   }
 
   function eta(session) {
-    let left = 0;
-    for (let i = session.index || 0; i < (session.chunks?.length || 0); i++) left += session.chunks[i].length;
-    if (session.chunkStartedAt && !session.paused) {
-      left = Math.max(0, left - ((Date.now() - session.chunkStartedAt) / 60000) * CHARS_PER_MIN);
+    const chunks = session.chunks || [];
+    const idx = session.index || 0;
+    if (idx >= chunks.length) return '~1 сек';
+
+    // текущий блок — по реальному прогрессу Audio, остальные — по длине текста
+    let sec = 0;
+    const cur = audioEl;
+    if (
+      cur &&
+      session.audioConfirmed &&
+      !session.paused &&
+      Number.isFinite(cur.duration) &&
+      cur.duration > 0 &&
+      Number.isFinite(cur.currentTime)
+    ) {
+      sec += Math.max(0, cur.duration - cur.currentTime);
+    } else {
+      sec += (chunks[idx].length / CHARS_PER_MIN) * 60;
     }
-    const m = left / CHARS_PER_MIN;
-    if (m < 1) return `~${Math.max(1, Math.round(m * 60))} сек`;
+    for (let i = idx + 1; i < chunks.length; i++) {
+      sec += (chunks[i].length / CHARS_PER_MIN) * 60;
+    }
+
+    if (sec < 5) return '~несколько сек';
+    if (sec < 60) return `~${Math.max(5, Math.round(sec / 5) * 5)} сек`;
+    const m = sec / 60;
     if (m < 10) return `~${m.toFixed(1).replace('.0', '')} мин`;
     return `~${Math.round(m)} мин`;
   }
@@ -415,7 +434,7 @@
         audioEl.onerror = () => reject(new Error('не удалось проиграть аудио'));
         const p = audioEl.play();
         if (p?.catch) await p;
-        // пауза через session.paused
+
         const tick = async () => {
           const s = await GM.getValue(SESSION_KEY, null);
           if (!s || s.stopped) {
@@ -427,6 +446,7 @@
             try {
               audioEl.pause();
             } catch (_) {}
+            setStatus(formatStatus(s, '⏸'));
             while (true) {
               await sleep(300);
               const s2 = await GM.getValue(SESSION_KEY, null);
@@ -439,12 +459,15 @@
                 try {
                   await audioEl.play();
                 } catch (_) {}
+                setStatus(formatStatus(s2, '▶'));
                 break;
               }
             }
+          } else if (s.audioConfirmed) {
+            setStatus(formatStatus(s, '▶'));
           }
           if (audioEl && !audioEl.paused && !audioEl.ended) {
-            setTimeout(tick, 400);
+            setTimeout(tick, 500);
           }
         };
         setTimeout(tick, 400);

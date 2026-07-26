@@ -1,4 +1,4 @@
-# MRT+ — озвучка страниц голосами Яндекса
+﻿# MRT+ — озвучка страниц голосами Яндекса
 
 Userscript для [Tampermonkey](https://www.tampermonkey.net/): читает открытую статью голосами Yandex TTS (Zahar, Ermil, Oksana и др.) **прямо во вкладке** — без панели MRT и без лишнего клика «Старт».
 
@@ -6,7 +6,7 @@ Userscript для [Tampermonkey](https://www.tampermonkey.net/): читает о
 | --- | --- |
 | **Горячая клавиша** | `Alt+R` |
 | **Браузеры** | Firefox, Chrome, Яндекс.Браузер (+ Tampermonkey) |
-| **Версия** | 1.6.1 |
+| **Версия** | 1.6.2 |
 
 ## Установка
 
