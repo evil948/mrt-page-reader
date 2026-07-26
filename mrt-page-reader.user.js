@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [MRT+] Озвучить страницу
 // @namespace    https://github.com/evil948/mrt-page-reader
-// @version      1.6.4
+// @version      1.6.5
 // @description  Озвучка статьи голосами Яндекса прямо на странице: Alt+R, подсветка, таймер — без клика «Старт»
 // @author       evil948
 // @match        *://*/*
@@ -404,16 +404,29 @@
     });
 
     const synthAt = async (index) => {
-      try {
-        return await ttsClient.synthesize(session.chunks[index], voiceOpts());
-      } catch (_) {
+      const raw = session.chunks[index];
+      const prepared = prepareForTts(raw);
+      const trySynth = async (text) => {
         try {
-          ttsClient.close();
-        } catch (_) {}
-        ttsClient = new UniproxyTTS(SPEECHKIT_KEY);
-        await ttsClient.connect();
-        return ttsClient.synthesize(session.chunks[index], voiceOpts());
+          return await ttsClient.synthesize(text, voiceOpts());
+        } catch (_) {
+          try {
+            ttsClient.close();
+          } catch (_) {}
+          ttsClient = new UniproxyTTS(SPEECHKIT_KEY);
+          await ttsClient.connect();
+          return ttsClient.synthesize(text, voiceOpts());
+        }
+      };
+
+      let audio = await trySynth(prepared || raw);
+      // слишком короткий OGG на длинный текст ≈ «вздох»/шум модели — один мягкий повтор
+      if (isWeakTtsAudio(audio, prepared || raw)) {
+        const retryText = softenForRetry(prepared || raw);
+        const audio2 = await trySynth(retryText);
+        if (audio2 && audio2.byteLength >= (audio?.byteLength || 0)) audio = audio2;
       }
+      return audio;
     };
 
     // пока играет блок N — уже качаем N+1 (без паузы на сеть между блоками)
@@ -831,28 +844,30 @@
 
   function buildSpeakPlan({ selectionOnly = false } = {}) {
     if (selectionOnly) {
-      const t = scrub(normalize(window.getSelection()?.toString() || ''));
+      const t = prepareForTts(scrub(normalize(window.getSelection()?.toString() || '')));
       if (t.length < 40) return null;
-      const chunks = split(t, HARD_MAX);
-      return { chunks, units: chunks.map((x) => ({ text: x, pids: [] })) };
+      const chunks = split(t, HARD_MAX).map((c) => prepareForTts(c)).filter(Boolean);
+      return { chunks, units: chunks.map((x) => ({ text: x, pids: [], ranges: [] })) };
     }
 
     const root = findArticleRoot();
-    const title = scrub(
-      normalize(
-        document.querySelector('h1')?.innerText ||
-          document.querySelector('[property="og:title"]')?.getAttribute('content') ||
-          ''
+    const title = prepareForTts(
+      scrub(
+        normalize(
+          document.querySelector('h1')?.innerText ||
+            document.querySelector('[property="og:title"]')?.getAttribute('content') ||
+            ''
+        )
       )
     );
 
     const paragraphs = collectParagraphs(root);
     if (!paragraphs.length) {
-      let fb = scrub(textFromNode(root || document.body));
+      let fb = prepareForTts(scrub(textFromNode(root || document.body)));
       if (fb.length < 40) return null;
-      if (title && !fb.startsWith(title)) fb = `${title}\n\n${fb}`;
-      const chunks = split(fb, Math.min(HARD_MAX, UNIT_TARGET * 4));
-      return { chunks, units: chunks.map((x) => ({ text: x, pids: [] })) };
+      if (title && !fb.startsWith(title)) fb = `${title}. ${fb}`;
+      const chunks = split(fb, Math.min(HARD_MAX, UNIT_TARGET * 4)).map((c) => prepareForTts(c)).filter(Boolean);
+      return { chunks, units: chunks.map((x) => ({ text: x, pids: [], ranges: [] })) };
     }
 
     paragraphMap = new Map();
@@ -863,7 +878,8 @@
 
     let units = pack(paragraphs, UNIT_TARGET, HARD_MAX);
     if (title && units.length && !units[0].text.startsWith(title)) {
-      const prefix = `${title}\n\n`;
+      const sep = /[.!?…:]$/.test(title) ? ' ' : '. ';
+      const prefix = `${title}${sep}`;
       const shift = prefix.length;
       units[0] = {
         text: prefix + units[0].text,
@@ -950,21 +966,31 @@
 
     const flush = () => {
       if (!buf.length) return;
-      const parts = [];
+      let text = '';
       const ranges = [];
-      let offset = 0;
+      const pids = [];
       for (const p of buf) {
-        if (parts.length) offset += 2; // \n\n
-        const start = offset;
-        parts.push(p.text);
-        offset += p.text.length;
-        ranges.push({ pid: p.id, start, end: offset });
+        const piece = prepareForTts(p.text);
+        if (!piece) continue;
+        let start;
+        if (!text) {
+          text = piece;
+          start = 0;
+        } else {
+          const sep = /[.!?…:]$/.test(text) ? ' ' : '. ';
+          const cleaned = piece.replace(/^[-–—]\s+/, '');
+          start = text.length + sep.length;
+          text = `${text}${sep}${cleaned}`;
+        }
+        pids.push(p.id);
+        ranges.push({ pid: p.id, start, end: text.length });
       }
-      units.push({
-        text: parts.join('\n\n'),
-        pids: buf.map((p) => p.id),
-        ranges,
-      });
+      if (!text) {
+        buf = [];
+        size = 0;
+        return;
+      }
+      units.push({ text, pids, ranges });
       buf = [];
       size = 0;
     };
@@ -972,11 +998,14 @@
     for (const p of paragraphs) {
       if (p.text.length > hardMax) {
         flush();
-        units.push({
-          text: p.text.slice(0, hardMax),
-          pids: [p.id],
-          ranges: [{ pid: p.id, start: 0, end: Math.min(hardMax, p.text.length) }],
-        });
+        const cut = prepareForTts(p.text.slice(0, hardMax));
+        if (cut) {
+          units.push({
+            text: cut,
+            pids: [p.id],
+            ranges: [{ pid: p.id, start: 0, end: cut.length }],
+          });
+        }
         continue;
       }
       if (size && size + p.text.length + 2 > hardMax) flush();
@@ -1059,6 +1088,55 @@
       .replace(/\n{3,}/g, '\n\n')
       .replace(/[ \t]{2,}/g, ' ')
       .trim();
+  }
+
+  /**
+   * Текст «для ушей»: убирает то, на чём Yandex TTS часто срывается в вздох/шум
+   * (голые тире, переносы абзацев, мусорные символы).
+   */
+  function prepareForTts(text) {
+    let t = String(text || '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/[“”«»]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/…+/g, '...')
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+      .replace(/\r/g, '')
+      .replace(/\n+/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+
+    // ведущее тире реплики и тире-паузы посередине
+    t = t.replace(/^[-–—]+\s*/, '');
+    t = t.replace(/\s*[—–]{1,2}\s*/g, ', ');
+    t = t.replace(/\s+-\s+/g, ', ');
+    t = t.replace(/\s{2,}/g, ' ');
+    t = t.replace(/\s+([,.!?…:;])/g, '$1');
+    t = t.replace(/([.!?…]){2,}/g, '$1');
+    t = t.trim();
+
+    if (!/[а-яА-ЯёЁa-zA-Z]/.test(t)) return '';
+    // одна «голая» буква/междометие без контекста — модель часто «пыхтит»
+    const letters = (t.match(/[а-яА-ЯёЁa-zA-Z]/g) || []).length;
+    if (letters < 2) return '';
+    return t;
+  }
+
+  function softenForRetry(text) {
+    let t = prepareForTts(text)
+      .replace(/,/g, '.')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!/[.!?…]$/.test(t)) t += '.';
+    return t;
+  }
+
+  function isWeakTtsAudio(buf, text) {
+    const letters = ((text || '').match(/[а-яА-ЯёЁa-zA-Z]/g) || []).length;
+    if (!buf || letters < 28) return false;
+    // нормальный ogg opus обычно заметно тяжелее «вздоха»
+    return buf.byteLength < Math.max(2800, letters * 35);
   }
 
   function split(text, limit) {
