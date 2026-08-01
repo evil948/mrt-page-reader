@@ -21,11 +21,9 @@ final class AppModel: ObservableObject {
         tabs.first { $0.id == selectedTabID }
     }
 
-    init(
-        bookmarkStore: BookmarkStore = BookmarkStore(),
-        speakController: SpeakController = SpeakController()
-    ) {
+    init(bookmarkStore: BookmarkStore = BookmarkStore()) {
         self.bookmarkStore = bookmarkStore
+        let speakController = SpeakController()
         self.speakController = speakController
         self.voiceID = UserDefaults.standard.string(forKey: prefsKey) ?? VoiceCatalog.defaultID
         self.bookmarks = bookmarkStore.load()

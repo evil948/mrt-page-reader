@@ -101,7 +101,7 @@ final class SpeakController {
     }
 
     private func playSession(token: Int) async throws {
-        await tts.connect()
+        try await tts.connect()
 
         var nextAudio: Task<(Data, String), Error>? = Task {
             try await synthAt(sessionIndex)
