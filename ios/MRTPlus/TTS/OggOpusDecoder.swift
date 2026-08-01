@@ -119,11 +119,11 @@ enum OggOpusDecoder {
 
         for packet in packets {
             let maxPacket = max(packet.count, 1)
-            guard let compressed = AVAudioCompressedBuffer(
+            let compressed = AVAudioCompressedBuffer(
                 format: inFormat,
                 packetCapacity: 1,
                 maximumPacketSize: maxPacket
-            ) else { continue }
+            )
 
             packet.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress else { return }

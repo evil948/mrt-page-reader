@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class BrowserTab: Identifiable, ObservableObject {
-    static let homeURL = URL(string: "mrtplus://home")!
+    nonisolated static let homeURL = URL(string: "mrtplus://home")!
 
     let id = UUID()
     let bridge = WebViewBridge()

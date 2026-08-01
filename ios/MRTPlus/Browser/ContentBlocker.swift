@@ -1,6 +1,7 @@
 import Foundation
 import WebKit
 
+@MainActor
 enum ContentBlocker {
     private static let listIdentifier = "io.github.evil948.mrtplus.adblock"
     private(set) static var sharedList: WKContentRuleList?
@@ -12,7 +13,7 @@ enum ContentBlocker {
             await compiling.value
             return
         }
-        let task = Task {
+        let task = Task { @MainActor in
             guard let url = Bundle.main.url(forResource: "adblock-rules", withExtension: "json"),
                   let data = try? Data(contentsOf: url),
                   let json = String(data: data, encoding: .utf8)
