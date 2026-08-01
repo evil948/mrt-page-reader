@@ -250,7 +250,7 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("MRT+")
                             .font(.largeTitle.weight(.bold))
-                        Text("v1.0.3")
+                        Text("v1.0.4")
                             .font(.caption.monospaced())
                             .foregroundStyle(.tertiary)
                     }
