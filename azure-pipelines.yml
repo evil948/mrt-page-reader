@@ -1,0 +1,172 @@
+# Azure Pipelines: сборка MRT+.ipa на macOS-агенте (без локального Mac).
+#
+# Режим по умолчанию: unsigned IPA → подпись на Windows через Sideloadly / AltStore.
+# Опционально: signed (нужны .p12 + .mobileprovision в Secure Files).
+#
+# Подключение: Azure DevOps → New pipeline → GitHub → этот репозиторий → Existing Azure Pipelines YAML.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - ios/**
+      - azure-pipelines.yml
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - ios/**
+      - azure-pipelines.yml
+
+parameters:
+  - name: signingMode
+    displayName: Signing mode
+    type: string
+    default: unsigned
+    values:
+      - unsigned
+      - signed
+
+variables:
+  - name: iosProject
+    value: ios/MRTPlus.xcodeproj
+  - name: scheme
+    value: MRTPlus
+  - name: configuration
+    value: Release
+  - name: archivePath
+    value: $(Build.BinariesDirectory)/MRTPlus.xcarchive
+  - name: ipaDir
+    value: $(Build.ArtifactStagingDirectory)/ipa
+  # Имена Secure Files (режим signed) — загрузите в Pipelines → Library → Secure files
+  - name: certSecureFile
+    value: mrtplus-ios.p12
+  - name: profileSecureFile
+    value: mrtplus.mobileprovision
+
+stages:
+  - stage: Build
+    displayName: Build iOS IPA
+    jobs:
+      - job: BuildIPA
+        displayName: macOS xcodebuild
+        pool:
+          vmImage: macOS-15
+        steps:
+          - checkout: self
+            displayName: Checkout
+
+          - script: |
+              set -euo pipefail
+              echo "Xcode:"
+              xcodebuild -version
+              echo "Schemes:"
+              xcodebuild -list -project "$(iosProject)"
+            displayName: Show Xcode / schemes
+
+          # --- signed only ---
+          - task: InstallAppleCertificate@2
+            displayName: Install Apple certificate
+            condition: eq('${{ parameters.signingMode }}', 'signed')
+            inputs:
+              certSecureFile: $(certSecureFile)
+              certPwd: $(P12_PASSWORD)
+              keychain: temp
+              opensslPkcsArgs: "-legacy"
+
+          - task: InstallAppleProvisioningProfile@1
+            displayName: Install provisioning profile
+            condition: eq('${{ parameters.signingMode }}', 'signed')
+            inputs:
+              provProfileSecureFile: $(profileSecureFile)
+
+          - script: |
+              set -euo pipefail
+              mkdir -p "$(ipaDir)"
+              xcodebuild archive \
+                -project "$(iosProject)" \
+                -scheme "$(scheme)" \
+                -configuration "$(configuration)" \
+                -destination "generic/platform=iOS" \
+                -archivePath "$(archivePath)" \
+                -allowProvisioningUpdates \
+                DEVELOPMENT_TEAM="$(APPLE_TEAM_ID)" \
+                CODE_SIGN_STYLE=Manual \
+                CODE_SIGN_IDENTITY="$(APPLE_CERTIFICATE_SIGNING_IDENTITY)" \
+                PROVISIONING_PROFILE_SPECIFIER="$(APPLE_PROV_PROFILE_UUID)" \
+                PRODUCT_BUNDLE_IDENTIFIER=io.github.evil948.mrtplus
+            displayName: Archive (signed)
+            condition: eq('${{ parameters.signingMode }}', 'signed')
+
+          - script: |
+              set -euo pipefail
+              EXPORT_PLIST="$(Build.BinariesDirectory)/ExportOptions.plist"
+              cat > "$EXPORT_PLIST" <<EOF
+              <?xml version="1.0" encoding="UTF-8"?>
+              <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+              <plist version="1.0">
+              <dict>
+                <key>method</key>
+                <string>development</string>
+                <key>signingStyle</key>
+                <string>manual</string>
+                <key>teamID</key>
+                <string>$(APPLE_TEAM_ID)</string>
+                <key>provisioningProfiles</key>
+                <dict>
+                  <key>io.github.evil948.mrtplus</key>
+                  <string>$(APPLE_PROV_PROFILE_UUID)</string>
+                </dict>
+                <key>compileBitcode</key>
+                <false/>
+                <key>stripSwiftSymbols</key>
+                <true/>
+              </dict>
+              </plist>
+              EOF
+              xcodebuild -exportArchive \
+                -archivePath "$(archivePath)" \
+                -exportPath "$(ipaDir)" \
+                -exportOptionsPlist "$EXPORT_PLIST"
+            displayName: Export IPA (signed)
+            condition: eq('${{ parameters.signingMode }}', 'signed')
+
+          # --- unsigned (default): Sideloadly / AltStore resign on Windows ---
+          - script: |
+              set -euo pipefail
+              mkdir -p "$(ipaDir)" "$(Build.BinariesDirectory)/Payload"
+              xcodebuild archive \
+                -project "$(iosProject)" \
+                -scheme "$(scheme)" \
+                -configuration "$(configuration)" \
+                -destination "generic/platform=iOS" \
+                -archivePath "$(archivePath)" \
+                CODE_SIGNING_ALLOWED=NO \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGN_IDENTITY="" \
+                PRODUCT_BUNDLE_IDENTIFIER=io.github.evil948.mrtplus
+              APP="$(archivePath)/Products/Applications/MRTPlus.app"
+              test -d "$APP"
+              rm -rf "$(Build.BinariesDirectory)/Payload"
+              mkdir -p "$(Build.BinariesDirectory)/Payload"
+              cp -R "$APP" "$(Build.BinariesDirectory)/Payload/"
+              (
+                cd "$(Build.BinariesDirectory)"
+                zip -qr "$(ipaDir)/MRTPlus-unsigned.ipa" Payload
+              )
+              echo "Built: $(ipaDir)/MRTPlus-unsigned.ipa"
+              ls -lh "$(ipaDir)"
+            displayName: Archive + pack unsigned IPA
+            condition: eq('${{ parameters.signingMode }}', 'unsigned')
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish IPA artifact
+            inputs:
+              PathtoPublish: $(ipaDir)
+              ArtifactName: mrtplus-ipa
+              publishLocation: Container

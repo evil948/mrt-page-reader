@@ -10,7 +10,7 @@
 | **Горячая клавиша** | `Alt+R` |
 | **Firefox** | подписанное расширение (`.xpi`) |
 | **Chrome / другие** | [Tampermonkey](#2-tampermonkey-userscript) |
-| **iPhone (эксперимент)** | [мини-браузер + озвучка](ios/README.md) |
+| **iPhone (эксперимент)** | [мини-браузер + озвучка](ios/README.md) · [сборка IPA в Azure](ios/AZURE.md) |
 
 ---
 
