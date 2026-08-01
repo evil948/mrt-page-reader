@@ -6,9 +6,11 @@
 
 ## Скачать IPA
 
-**[⬇ MRT+ iOS 1.0.0 (unsigned)](https://github.com/evil948/mrt-page-reader/releases/download/ios-1.0.0/MRTPlus-unsigned.ipa)** — релиз [ios-1.0.0](https://github.com/evil948/mrt-page-reader/releases/tag/ios-1.0.0)
+Свежие сборки: **[Releases](https://github.com/evil948/mrt-page-reader/releases)** (тег `ios-x.y.z`).
 
-Подпись на Windows: [Sideloadly](https://sideloadly.io/) + Apple ID → на iPhone доверьте сертификат разработчика.
+Перед установкой **удалите** старое MRT+ с iPhone. На стартовом экране должна быть версия (например `v1.0.1`) — иначе это не та сборка.
+
+Подпись: [Sideloadly](https://sideloadly.io/) + Apple ID → доверьте сертификат на устройстве.
 
 ## Быстрый старт без Mac (сборка самому)
 

@@ -248,6 +248,9 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("MRT+")
                     .font(.largeTitle.weight(.bold))
+                Text("v1.0.1")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
                 Text("Выберите новостной сайт — потом откройте статью и нажмите ▶")
                     .foregroundStyle(.secondary)
 

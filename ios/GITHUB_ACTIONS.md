@@ -1,6 +1,6 @@
 # Сборка .ipa через GitHub Actions (без Mac и без Azure)
 
-Готовый IPA также лежит в [Releases → ios-1.0.0](https://github.com/evil948/mrt-page-reader/releases/tag/ios-1.0.0).
+Готовый IPA: [Releases](https://github.com/evil948/mrt-page-reader/releases) (ставьте свежий `ios-x.y.z`, старое приложение с iPhone лучше удалить перед установкой).
 
 Репозиторий уже на GitHub — Actions гоняет `xcodebuild` на **macos-15** и отдаёт артефакт. Подпись — у вас на Windows (Sideloadly).
 

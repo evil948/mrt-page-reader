@@ -1,5 +1,5 @@
 # Сборка MRT+.ipa на GitHub-hosted macOS (без локального Mac и без Azure).
-# Артефакт: MRTPlus-unsigned.ipa → подпись на Windows через Sideloadly.
+# После успеха на main публикует/обновляет GitHub Release ios-<version>.
 
 name: iOS IPA
 
@@ -12,7 +12,7 @@ on:
       - ".github/workflows/ios-ipa.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -23,6 +23,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: |
+          SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' ios/MRTPlus/Resources/Info.plist)
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' ios/MRTPlus/Resources/Info.plist)
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "tag=ios-$SHORT" >> "$GITHUB_OUTPUT"
+          echo "ipa=MRTPlus-$SHORT-unsigned.ipa" >> "$GITHUB_OUTPUT"
+          echo "Version $SHORT ($BUILD)"
 
       - name: Show Xcode
         run: |
@@ -45,10 +56,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            PRODUCT_BUNDLE_IDENTIFIER=io.github.evil948.mrtplus
+            PRODUCT_BUNDLE_IDENTIFIER=io.github.evil948.mrtplus \
+            MARKETING_VERSION="${{ steps.ver.outputs.short }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.ver.outputs.build }}"
 
           APP="$ARCHIVE/Products/Applications/MRTPlus.app"
           test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
 
           PAYLOAD="$RUNNER_TEMP/Payload"
           rm -rf "$PAYLOAD"
@@ -56,14 +71,46 @@ jobs:
           cp -R "$APP" "$PAYLOAD/"
           (
             cd "$RUNNER_TEMP"
-            zip -qr "$IPA_DIR/MRTPlus-unsigned.ipa" Payload
+            zip -qr "$IPA_DIR/${{ steps.ver.outputs.ipa }}" Payload
           )
           ls -lh "$IPA_DIR"
 
-      - name: Upload IPA
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: mrtplus-ipa
           path: ${{ runner.temp }}/ipa/*.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub Release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          IPA="$RUNNER_TEMP/ipa/${{ steps.ver.outputs.ipa }}"
+          NOTES="$(cat <<EOF
+          ## MRT+ iOS ${{ steps.ver.outputs.short }}
+
+          Build ${{ steps.ver.outputs.build }} · commit \`${GITHUB_SHA:0:7}\`
+
+          ### Установка
+          1. **Удалите** старое MRT+ с iPhone (иначе Sideloadly может оставить прошлую сборку).
+          2. Скачайте IPA ниже.
+          3. [Sideloadly](https://sideloadly.io/) + Apple ID → Install.
+          4. На телефоне доверьте сертификат разработчика.
+
+          На стартовом экране должна быть подпись **v${{ steps.ver.outputs.short }}**. Если её нет — стоит старое приложение.
+          EOF
+          )"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$IPA" --clobber
+            gh release edit "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" "$IPA" \
+              --title "MRT+ iOS ${{ steps.ver.outputs.short }}" \
+              --notes "$NOTES"
+          fi
+          echo "Published https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
