@@ -35,6 +35,7 @@ final class SpeakController {
     private var voiceID = VoiceCatalog.defaultID
     private weak var bridge: WebViewBridge?
     private var audioConfirmed = false
+    private var remotesBound = false
 
     private let charsPerMin = 900.0
 
@@ -43,14 +44,20 @@ final class SpeakController {
         self.voiceID = voiceID
         stopInternal(notify: false)
         let token = runToken
+        bindRemotesIfNeeded()
+        BackgroundPlayback.beginTask()
+        try? BackgroundPlayback.activateSession()
 
         onStatus?("Ищу текст статьи…")
         onStateChange?(true, false)
+        refreshNowPlaying(rate: 0)
 
         do {
             guard let plan = try await bridge.extractSpeakPlan(selectionOnly: false) else {
                 onStatus?("Не удалось найти текст статьи.")
                 onStateChange?(false, false)
+                BackgroundPlayback.clearNowPlaying()
+                BackgroundPlayback.endTask()
                 return
             }
             sessionChunks = plan.chunks
@@ -65,27 +72,61 @@ final class SpeakController {
             if token != runToken { return }
             onStatus?("Ошибка TTS: \(error.localizedDescription)")
             onStateChange?(false, true)
+            refreshNowPlaying(rate: 0)
         }
     }
 
     func togglePause() {
         guard !sessionChunks.isEmpty, !stopped else { return }
         if paused {
-            paused = false
-            player.resume()
-            onStateChange?(true, false)
-            onStatus?(formatStatus(prefix: "▶"))
+            resumePlayback()
         } else {
-            paused = true
-            player.pause()
-            onStateChange?(true, true)
-            onStatus?(formatStatus(prefix: "⏸"))
+            pausePlayback()
         }
+    }
+
+    func pausePlayback() {
+        guard !sessionChunks.isEmpty, !stopped else { return }
+        paused = true
+        player.pause()
+        onStateChange?(true, true)
+        onStatus?(formatStatus(prefix: "⏸"))
+        refreshNowPlaying(rate: 0)
+    }
+
+    func resumePlayback() {
+        guard !sessionChunks.isEmpty, !stopped else { return }
+        paused = false
+        try? BackgroundPlayback.activateSession()
+        BackgroundPlayback.beginTask()
+        player.resume()
+        onStateChange?(true, false)
+        onStatus?(formatStatus(prefix: "▶"))
+        refreshNowPlaying(rate: 1)
     }
 
     func stop() {
         stopInternal(notify: true)
         Task { await bridge?.clearHighlights() }
+    }
+
+    private func bindRemotesIfNeeded() {
+        guard !remotesBound else { return }
+        remotesBound = true
+        BackgroundPlayback.bindRemoteCommands(
+            onPlay: { [weak self] in
+                Task { @MainActor in self?.resumePlayback() }
+            },
+            onPause: { [weak self] in
+                Task { @MainActor in self?.pausePlayback() }
+            },
+            onToggle: { [weak self] in
+                Task { @MainActor in self?.togglePause() }
+            },
+            onStop: { [weak self] in
+                Task { @MainActor in self?.stop() }
+            }
+        )
     }
 
     private func stopInternal(notify: Bool) {
@@ -94,6 +135,8 @@ final class SpeakController {
         paused = false
         player.stop()
         Task { await tts.close() }
+        BackgroundPlayback.clearNowPlaying()
+        BackgroundPlayback.endTask()
         if notify {
             onStateChange?(false, false)
             onStatus?("")
@@ -102,6 +145,7 @@ final class SpeakController {
 
     private func playSession(token: Int) async throws {
         try await tts.connect()
+        BackgroundPlayback.beginTask()
 
         var nextAudio: Task<(Data, String), Error>? = Task {
             try await synthAt(sessionIndex)
@@ -118,6 +162,7 @@ final class SpeakController {
 
             audioConfirmed = false
             onStatus?(formatStatus(prefix: "▶"))
+            refreshNowPlaying(rate: 0)
             await highlightCurrent(progress: 0)
 
             let currentTask = nextAudio ?? Task { try await synthAt(sessionIndex) }
@@ -140,6 +185,7 @@ final class SpeakController {
             audioConfirmed = true
             onStateChange?(true, false)
             onStatus?(formatStatus(prefix: "▶"))
+            BackgroundPlayback.beginTask()
 
             let highlightTask = Task { @MainActor in
                 while !Task.isCancelled {
@@ -147,7 +193,8 @@ final class SpeakController {
                     let p = self.player.progress
                     await self.highlightCurrent(progress: p)
                     self.onStatus?(self.formatStatus(prefix: "▶"))
-                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    self.refreshNowPlaying(rate: 1)
+                    try? await Task.sleep(nanoseconds: 250_000_000)
                     if !self.player.isPlaying { break }
                 }
             }
@@ -156,7 +203,6 @@ final class SpeakController {
                 try await player.play(data: audio, mimeHint: mime)
             } catch {
                 highlightTask.cancel()
-                // If mp3 path failed and we got opus, surface clear error
                 throw error
             }
             highlightTask.cancel()
@@ -175,6 +221,8 @@ final class SpeakController {
         onStateChange?(false, false)
         let n = sessionChunks.count
         onStatus?(n > 1 ? "Готово: \(n) блоков." : "Готово.")
+        BackgroundPlayback.clearNowPlaying()
+        BackgroundPlayback.endTask()
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         if token == runToken {
             onStatus?("")
@@ -182,6 +230,7 @@ final class SpeakController {
     }
 
     private func synthAt(_ index: Int) async throws -> (Data, String) {
+        BackgroundPlayback.beginTask()
         let prepared = sessionChunks[index]
         var result = try await tts.synthesize(text: prepared, voice: voiceID)
         if isWeak(result.data, text: prepared) {
@@ -192,6 +241,26 @@ final class SpeakController {
             }
         }
         return (result.data, result.mimeHint)
+    }
+
+    private func refreshNowPlaying(rate: Double) {
+        let n = max(1, sessionChunks.count)
+        let i = min(sessionIndex + 1, n)
+        let title: String
+        if sessionIndex < sessionChunks.count {
+            let chunk = sessionChunks[sessionIndex]
+            title = String(chunk.prefix(80)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            title = "MRT+"
+        }
+        let subtitle = "MRT+ · \(VoiceCatalog.label(for: voiceID)) · \(i)/\(n)"
+        BackgroundPlayback.updateNowPlaying(
+            title: title.isEmpty ? "Озвучка" : title,
+            subtitle: subtitle,
+            elapsed: player.currentTime,
+            duration: player.duration,
+            rate: rate
+        )
     }
 
     private func highlightCurrent(progress: Double) async {

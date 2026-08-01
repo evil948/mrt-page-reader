@@ -9,8 +9,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
-    MARKETING_VERSION: "1.0.2"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: "1.0.3"
+    CURRENT_PROJECT_VERSION: "5"
 targets:
   MRTPlus:
     type: application

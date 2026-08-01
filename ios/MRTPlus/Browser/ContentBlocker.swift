@@ -3,7 +3,7 @@ import WebKit
 
 @MainActor
 enum ContentBlocker {
-    private static let listIdentifier = "io.github.evil948.mrtplus.adblock.v2"
+    private static let listIdentifier = "io.github.evil948.mrtplus.adblock.v3"
     private(set) static var sharedList: WKContentRuleList?
     private static var compiling: Task<Void, Never>?
 

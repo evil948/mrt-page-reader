@@ -10,7 +10,7 @@ final class ChunkAudioPlayer: NSObject, AVAudioPlayerDelegate {
 
     func play(data: Data, mimeHint: String) async throws {
         stop(clear: true)
-        try configureSession()
+        try BackgroundPlayback.activateSession()
 
         let detected = Self.detectFormat(data) ?? mimeHint
         let playData: Data
@@ -25,15 +25,12 @@ final class ChunkAudioPlayer: NSObject, AVAudioPlayerDelegate {
         } else if detected.contains("mpeg") || detected == "mp3" || detected == "audio/mp3" {
             playData = data
             ext = "mp3"
+        } else if data.count >= 4, data[0] == 0x4F, data[1] == 0x67, data[2] == 0x67, data[3] == 0x53 {
+            playData = try OggOpusDecoder.oggOpusToWAV(data)
+            ext = "wav"
         } else {
-            // Unknown — try as-is, then Opus demux
-            if data.count >= 4, data[0] == 0x4F, data[1] == 0x67, data[2] == 0x67, data[3] == 0x53 {
-                playData = try OggOpusDecoder.oggOpusToWAV(data)
-                ext = "wav"
-            } else {
-                playData = data
-                ext = "mp3"
-            }
+            playData = data
+            ext = "mp3"
         }
 
         let url = FileManager.default.temporaryDirectory
@@ -70,12 +67,24 @@ final class ChunkAudioPlayer: NSObject, AVAudioPlayerDelegate {
         return nil
     }
 
-    func pause() { player?.pause() }
-    func resume() { player?.play() }
+    func pause() {
+        player?.pause()
+    }
+
+    func resume() {
+        try? BackgroundPlayback.activateSession()
+        player?.play()
+    }
 
     var progress: Double {
         guard let player, player.duration > 0 else { return 0 }
         return min(1, max(0, player.currentTime / player.duration))
+    }
+
+    var currentTime: Double { player?.currentTime ?? 0 }
+    var duration: Double {
+        let d = player?.duration ?? 0
+        return d.isFinite ? d : 0
     }
 
     var isPlaying: Bool { player?.isPlaying ?? false }
@@ -109,12 +118,6 @@ final class ChunkAudioPlayer: NSObject, AVAudioPlayerDelegate {
             try? FileManager.default.removeItem(at: tempURL)
             self.tempURL = nil
         }
-    }
-
-    private func configureSession() throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try session.setActive(true)
     }
 }
 

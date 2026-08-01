@@ -32,14 +32,20 @@
         "*otm-r.com",
         "*rutarget.ru",
         "*betweenx.com",
-        "*digitaltarget.ru"
+        "*digitaltarget.ru",
+        "*soloway.ru",
+        "*buzzoola.com",
+        "*videonow.ru",
+        "*al-adtech.com",
+        "*adhigh.net",
+        "*ssp.rambler.ru"
       ]
     },
     "action": { "type": "block" }
   },
   {
     "trigger": {
-      "url-filter": "^https?://([^/]*\\.)?(ads\\.adfox\\.ru|an\\.yandex\\.ru)/"
+      "url-filter": "^https?://([^/]*\\.)?(ads\\.adfox\\.ru|an\\.yandex\\.ru|adfstat\\.yandex\\.ru)/"
     },
     "action": { "type": "block" }
   },
