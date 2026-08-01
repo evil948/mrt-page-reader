@@ -10,7 +10,7 @@
 | **Горячая клавиша** | `Alt+R` |
 | **Firefox** | подписанное расширение (`.xpi`) |
 | **Chrome / другие** | [Tampermonkey](#2-tampermonkey-userscript) |
-| **iPhone (эксперимент)** | [мини-браузер + озвучка](ios/README.md) · [сборка IPA](ios/GITHUB_ACTIONS.md) |
+| **iPhone (эксперимент)** | [⬇ IPA 1.0.0](https://github.com/evil948/mrt-page-reader/releases/download/ios-1.0.0/MRTPlus-unsigned.ipa) · [как ставить](ios/GITHUB_ACTIONS.md) |
 
 ---
 

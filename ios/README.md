@@ -4,12 +4,13 @@
 
 **Требования:** iOS 17+, Apple ID. Локальная сборка — macOS + Xcode 15+. **Без Mac:** [GitHub Actions](GITHUB_ACTIONS.md) (рекомендуется) или [Azure DevOps](AZURE.md).
 
-## Быстрый старт без Mac (рекомендуется с Windows)
+## Скачать IPA
 
-1. GitHub → **Actions** → **iOS IPA** → **Run workflow** ([инструкция](GITHUB_ACTIONS.md)).
-2. Скачайте артефакт `MRTPlus-unsigned.ipa`.
-3. Подпись на Windows через [Sideloadly](https://sideloadly.io/) своим Apple ID.
-4. На iPhone доверьте сертификат разработчика.
+**[⬇ MRT+ iOS 1.0.0 (unsigned)](https://github.com/evil948/mrt-page-reader/releases/download/ios-1.0.0/MRTPlus-unsigned.ipa)** — релиз [ios-1.0.0](https://github.com/evil948/mrt-page-reader/releases/tag/ios-1.0.0)
+
+Подпись на Windows: [Sideloadly](https://sideloadly.io/) + Apple ID → на iPhone доверьте сертификат разработчика.
+
+## Быстрый старт без Mac (сборка самому)
 
 ## Быстрый старт (Xcode → iPhone)
 
