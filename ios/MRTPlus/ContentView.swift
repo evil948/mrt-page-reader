@@ -246,12 +246,23 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("MRT+")
-                    .font(.largeTitle.weight(.bold))
-                Text("v1.0.1")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-                Text("Выберите новостной сайт — потом откройте статью и нажмите ▶")
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("MRT+")
+                            .font(.largeTitle.weight(.bold))
+                        Text("v1.0.2")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button {
+                        app.showBookmarks = true
+                    } label: {
+                        Label("Изменить", systemImage: "pencil")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+                Text("Выберите сайт или добавьте свой в «Изменить». Затем откройте статью и нажмите ▶")
                     .foregroundStyle(.secondary)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
@@ -275,7 +286,41 @@ struct HomeView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                app.showBookmarks = true
+                            } label: {
+                                Label("Управлять списком", systemImage: "list.bullet")
+                            }
+                            Button(role: .destructive) {
+                                app.removeBookmark(bookmark)
+                            } label: {
+                                Label("Удалить", systemImage: "trash")
+                            }
+                        }
                     }
+
+                    Button {
+                        app.showBookmarks = true
+                    } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.title2.weight(.semibold))
+                            Text("Добавить сайт")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 72)
+                        .padding(14)
+                        .background(Color(.secondarySystemBackground).opacity(0.6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [6]))
+                                .foregroundStyle(.tertiary)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(20)

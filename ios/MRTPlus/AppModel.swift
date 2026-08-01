@@ -97,6 +97,21 @@ final class AppModel: ObservableObject {
         bookmarks = bookmarkStore.load()
     }
 
+    func removeBookmarks(at offsets: IndexSet) {
+        bookmarkStore.remove(at: offsets)
+        bookmarks = bookmarkStore.load()
+    }
+
+    func moveBookmarks(from source: IndexSet, to destination: Int) {
+        bookmarkStore.move(from: source, to: destination)
+        bookmarks = bookmarkStore.load()
+    }
+
+    func updateBookmark(_ bookmark: Bookmark) {
+        bookmarkStore.update(bookmark)
+        bookmarks = bookmarkStore.load()
+    }
+
     func addBookmark(_ bookmark: Bookmark) {
         bookmarkStore.add(bookmark)
         bookmarks = bookmarkStore.load()

@@ -2,7 +2,7 @@
   {
     "trigger": {
       "url-filter": ".*",
-      "resource-type": ["script", "image", "media", "raw", "style-sheet"],
+      "resource-type": ["script", "image", "media", "raw"],
       "if-domain": [
         "*doubleclick.net",
         "*googlesyndication.com",
@@ -13,7 +13,6 @@
         "*adnxs.com",
         "*adsrvr.org",
         "*adform.net",
-        "*advertising.com",
         "*adfox.ru",
         "*yandexadexchange.net",
         "*an.yandex.ru",
@@ -33,37 +32,22 @@
         "*otm-r.com",
         "*rutarget.ru",
         "*betweenx.com",
-        "*digitaltarget.ru",
-        "*tns-counter.ru"
+        "*digitaltarget.ru"
       ]
     },
     "action": { "type": "block" }
   },
   {
     "trigger": {
-      "url-filter": "^https?://([^/]*\\.)?(mc\\.yandex\\.(ru|com)|ads\\.adfox\\.ru)/"
+      "url-filter": "^https?://([^/]*\\.)?(ads\\.adfox\\.ru|an\\.yandex\\.ru)/"
     },
     "action": { "type": "block" }
-  },
-  {
-    "trigger": {
-      "url-filter": "^https?://.*/(ad|ads|advert|banner|sponsor)([_/\\.?].*)?$",
-      "resource-type": ["script", "image", "raw", "media"]
-    },
-    "action": { "type": "block" }
-  },
-  {
-    "trigger": { "url-filter": ".*", "resource-type": ["script", "image", "raw"] },
-    "action": {
-      "type": "css-display-none",
-      "selector": "[class*='advert'],[class*='Advert'],[id*='advert'],[id*='Advert'],[class*='ad-banner'],[class*='ad_banner'],[class*='banner-ad'],[data-ad],[data-advert],[class*='AdFox'],[id*='adfox'],[class*='adfox'],iframe[src*='adfox'],iframe[src*='doubleclick'],iframe[src*='googlesyndication'],iframe[src*='an.yandex'],.adv,.b-banner,.banner_ad,.js-ad,.ad-wrapper,.ad_wrapper,.advertisement,.advertising"
-    }
   },
   {
     "trigger": { "url-filter": ".*" },
     "action": {
       "type": "css-display-none",
-      "selector": "#app-cookie,[class*='cookie-banner'],[class*='CookieBanner'],[id*='cookie-banner'],[class*='cookies-banner'],[class*='gdpr'],[class*='consent-banner'],[id*='consent'],[class*='CookieConsent'],[class*='cookieConsent'],[class*='cookie-notice'],[class*='cookies-notice'],div[class*='Cookie'][class*='Popup'],div[class*='cookie'][class*='popup']"
+      "selector": "iframe[src*='adfox'],iframe[src*='doubleclick'],iframe[src*='googlesyndication'],iframe[src*='an.yandex'],iframe[src*='yandexadexchange'],iframe[id*='adfox'],iframe[class*='adfox']"
     }
   }
 ]
