@@ -2,13 +2,14 @@
 
 Мини-браузер с закладками новостных сайтов и встроенной озвучкой (Yandex Uniproxy — те же голоса, что в Firefox-расширении).
 
-**Требования:** iOS 17+, Apple ID. Локальная сборка — macOS + Xcode 15+. **Без Mac:** [сборка .ipa в Azure DevOps](AZURE.md).
+**Требования:** iOS 17+, Apple ID. Локальная сборка — macOS + Xcode 15+. **Без Mac:** [GitHub Actions](GITHUB_ACTIONS.md) (рекомендуется) или [Azure DevOps](AZURE.md).
 
 ## Быстрый старт без Mac (рекомендуется с Windows)
 
-1. Pipeline в Azure DevOps по инструкции [`AZURE.md`](AZURE.md) → артефакт `MRTPlus-unsigned.ipa`.
-2. Подпись на Windows через [Sideloadly](https://sideloadly.io/) своим Apple ID.
-3. На iPhone доверьте сертификат разработчика.
+1. GitHub → **Actions** → **iOS IPA** → **Run workflow** ([инструкция](GITHUB_ACTIONS.md)).
+2. Скачайте артефакт `MRTPlus-unsigned.ipa`.
+3. Подпись на Windows через [Sideloadly](https://sideloadly.io/) своим Apple ID.
+4. На iPhone доверьте сертификат разработчика.
 
 ## Быстрый старт (Xcode → iPhone)
 
@@ -79,7 +80,7 @@ cd ios && xcodegen generate
 - Озвучка идёт через неофициальный Uniproxy (как desktop MRT+); API может измениться.
 - На iOS предпочитаем формат **mp3**; Ogg Opus с desktop-канала нативно почти не играет — при пустом/битом mp3 увидите ошибку воспроизведения.
 - Не для App Store: неофициальный TTS и ключ Translate desktop с высокой вероятностью отклонят.
-- Локально собрать `.ipa` с Windows нельзя — используйте [Azure DevOps](AZURE.md) или Mac.
+- Локально собрать `.ipa` с Windows нельзя — используйте [GitHub Actions](GITHUB_ACTIONS.md) или Mac.
 
 ## Структура
 
