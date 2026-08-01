@@ -10,6 +10,7 @@
 | **Горячая клавиша** | `Alt+R` |
 | **Firefox** | подписанное расширение (`.xpi`) |
 | **Chrome / другие** | [Tampermonkey](#2-tampermonkey-userscript) |
+| **iPhone (эксперимент)** | [мини-браузер + озвучка](ios/README.md) |
 
 ---
 
@@ -85,6 +86,7 @@
 ```text
 mrt-page-reader.user.js     # исходник логики
 extension/                  # Firefox WebExtension
+ios/                        # iOS мини-браузер + TTS (нужен Mac/Xcode)
 tools/build-extension.ps1   # content.js + unsigned .xpi
 tools/sign-extension.ps1    # подпись AMO (unlisted) → signed .xpi
 ```

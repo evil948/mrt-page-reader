@@ -10,3 +10,7 @@ tools/amo-credentials.local.ps1
 extension/web-ext-artifacts/
 extension/.amo-upload-uuid
 web-ext-artifacts/
+ios/build/
+ios/*.xcarchive
+ios/**/xcuserdata/
+ios/**/DerivedData/
