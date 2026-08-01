@@ -18,6 +18,8 @@ final class WebViewBridge: NSObject, ObservableObject {
         webView?.load(URLRequest(url: url))
     }
 
+    var isAttached: Bool { webView != nil }
+
     func goBack() { webView?.goBack() }
     func goForward() { webView?.goForward() }
     func reload() { webView?.reload() }

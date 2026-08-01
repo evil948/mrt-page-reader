@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 final class BrowserTab: Identifiable, ObservableObject {
+    static let homeURL = URL(string: "mrtplus://home")!
+
     let id = UUID()
     let bridge = WebViewBridge()
     @Published var url: URL
@@ -12,15 +14,35 @@ final class BrowserTab: Identifiable, ObservableObject {
     @Published var canGoForward = false
     @Published var addressText: String
 
-    init(url: URL) {
+    var isHome: Bool {
+        url.scheme == "mrtplus" && url.host == "home"
+    }
+
+    init(url: URL = BrowserTab.homeURL) {
         self.url = url
-        self.addressText = url.absoluteString
+        if url.scheme == "mrtplus" {
+            self.addressText = ""
+            self.title = "Старт"
+        } else {
+            self.addressText = url.absoluteString
+        }
     }
 
     func navigate(to url: URL) {
         self.url = url
+        if url.scheme == "mrtplus" {
+            self.addressText = ""
+            self.title = "Старт"
+            return
+        }
         self.addressText = url.absoluteString
-        bridge.load(url)
+        if bridge.isAttached {
+            bridge.load(url)
+        }
+    }
+
+    func goHome() {
+        navigate(to: Self.homeURL)
     }
 
     func submitAddress() {

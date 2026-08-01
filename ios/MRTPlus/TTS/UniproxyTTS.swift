@@ -5,8 +5,8 @@ actor UniproxyTTS {
     static let speechKitKey = "bf4277fc-06c0-405a-b278-b796bbbd3f27"
     static let uniproxyURL = URL(string: "wss://uniproxy.alice.yandex.net/uni.ws")!
 
-    /// Prefer MP3 for native AVAudioPlayer; fall back to Opus if server rejects.
-    private static let preferredFormats = ["audio/mpeg", "mp3", "audio/opus"]
+    /// Server usually returns Ogg Opus regardless; we decode on device.
+    private static let preferredFormats = ["audio/opus", "audio/mpeg", "mp3"]
 
     private let apiKey: String
     private var task: URLSessionWebSocketTask?

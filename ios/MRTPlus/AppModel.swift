@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published var speakStatus: String = ""
     @Published var isSpeaking = false
     @Published var isPaused = false
+    @Published var speakPanelOpen = false
 
     let speakController: SpeakController
     private let bookmarkStore: BookmarkStore
@@ -28,8 +29,7 @@ final class AppModel: ObservableObject {
         self.voiceID = UserDefaults.standard.string(forKey: prefsKey) ?? VoiceCatalog.defaultID
         self.bookmarks = bookmarkStore.load()
         if tabs.isEmpty {
-            let first = bookmarks.first?.url ?? URL(string: "https://lenta.ru")!
-            addTab(url: first)
+            addTab(url: BrowserTab.homeURL)
         }
         speakController.onStatus = { [weak self] status in
             Task { @MainActor in
@@ -40,18 +40,28 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 self?.isSpeaking = speaking
                 self?.isPaused = paused
+                if speaking || paused {
+                    self?.speakPanelOpen = true
+                }
             }
         }
     }
 
-    func addTab(url: URL) {
+    func addTab(url: URL = BrowserTab.homeURL) {
         let tab = BrowserTab(url: url)
         tabs.append(tab)
         selectedTabID = tab.id
     }
 
     func closeTab(_ id: UUID) {
-        guard tabs.count > 1 else { return }
+        guard tabs.count > 1 else {
+            // Reset last tab to home
+            if let tab = tabs.first {
+                tab.goHome()
+                speakController.stop()
+            }
+            return
+        }
         tabs.removeAll { $0.id == id }
         if selectedTabID == id {
             selectedTabID = tabs.last?.id
@@ -76,7 +86,7 @@ final class AppModel: ObservableObject {
     }
 
     func addCurrentPageAsBookmark(title: String?, url: URL?) {
-        guard let url else { return }
+        guard let url, url.scheme != "mrtplus" else { return }
         let name = (title?.isEmpty == false ? title! : url.host) ?? url.absoluteString
         bookmarkStore.add(Bookmark(title: name, url: url))
         bookmarks = bookmarkStore.load()
@@ -98,10 +108,14 @@ final class AppModel: ObservableObject {
     }
 
     func speak(webBridge: WebViewBridge?) {
-        guard let webBridge else {
-            speakStatus = "Страница ещё не готова."
+        guard let webBridge, selectedTab?.isHome != true else {
+            speakStatus = selectedTab?.isHome == true
+                ? "Откройте статью из закладок."
+                : "Страница ещё не готова."
+            speakPanelOpen = true
             return
         }
+        speakPanelOpen = true
         Task {
             await speakController.start(bridge: webBridge, voiceID: voiceID)
         }

@@ -19,7 +19,11 @@
 		A1000000000000000000000A /* UniproxyTTS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* UniproxyTTS.swift */; };
 		A1000000000000000000000B /* ChunkAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* ChunkAudioPlayer.swift */; };
 		A1000000000000000000000C /* SpeakController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* SpeakController.swift */; };
+		A10000000000000000000010 /* OggOpusDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* OggOpusDecoder.swift */; };
+		A10000000000000000000011 /* ContentBlocker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* ContentBlocker.swift */; };
 		A1000000000000000000000D /* extract.js in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* extract.js */; };
+		A10000000000000000000012 /* adblock-rules.json in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* adblock-rules.json */; };
+		A10000000000000000000013 /* page-scripts.js in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* page-scripts.js */; };
 		A1000000000000000000000E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -36,7 +40,11 @@
 		B1000000000000000000000A /* UniproxyTTS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniproxyTTS.swift; sourceTree = "<group>"; };
 		B1000000000000000000000B /* ChunkAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChunkAudioPlayer.swift; sourceTree = "<group>"; };
 		B1000000000000000000000C /* SpeakController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakController.swift; sourceTree = "<group>"; };
+		B10000000000000000000010 /* OggOpusDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OggOpusDecoder.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* ContentBlocker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlocker.swift; sourceTree = "<group>"; };
 		B1000000000000000000000D /* extract.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = extract.js; sourceTree = "<group>"; };
+		B10000000000000000000012 /* adblock-rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "adblock-rules.json"; sourceTree = "<group>"; };
+		B10000000000000000000013 /* page-scripts.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "page-scripts.js"; sourceTree = "<group>"; };
 		B1000000000000000000000E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B1000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C10000000000000000000001 /* MRTPlus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MRTPlus.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -82,6 +90,7 @@
 				B10000000000000000000004 /* BrowserTab.swift */,
 				B10000000000000000000005 /* BrowserWebView.swift */,
 				B10000000000000000000006 /* WebViewBridge.swift */,
+				B10000000000000000000011 /* ContentBlocker.swift */,
 			);
 			path = Browser;
 			sourceTree = "<group>";
@@ -102,6 +111,7 @@
 				B1000000000000000000000A /* UniproxyTTS.swift */,
 				B1000000000000000000000B /* ChunkAudioPlayer.swift */,
 				B1000000000000000000000C /* SpeakController.swift */,
+				B10000000000000000000010 /* OggOpusDecoder.swift */,
 			);
 			path = TTS;
 			sourceTree = "<group>";
@@ -110,6 +120,8 @@
 			isa = PBXGroup;
 			children = (
 				B1000000000000000000000D /* extract.js */,
+				B10000000000000000000012 /* adblock-rules.json */,
+				B10000000000000000000013 /* page-scripts.js */,
 				B1000000000000000000000F /* Info.plist */,
 			);
 			path = Resources;
@@ -183,6 +195,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000000000000000000000D /* extract.js in Resources */,
+				A10000000000000000000012 /* adblock-rules.json in Resources */,
+				A10000000000000000000013 /* page-scripts.js in Resources */,
 				A1000000000000000000000E /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -206,6 +220,8 @@
 				A1000000000000000000000A /* UniproxyTTS.swift in Sources */,
 				A1000000000000000000000B /* ChunkAudioPlayer.swift in Sources */,
 				A1000000000000000000000C /* SpeakController.swift in Sources */,
+				A10000000000000000000010 /* OggOpusDecoder.swift in Sources */,
+				A10000000000000000000011 /* ContentBlocker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

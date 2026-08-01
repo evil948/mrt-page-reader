@@ -8,6 +8,9 @@ struct MRTPlusApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appModel)
+                .task {
+                    await ContentBlocker.ensureCompiled()
+                }
         }
     }
 }

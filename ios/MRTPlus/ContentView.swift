@@ -7,16 +7,21 @@ struct ContentView: View {
         VStack(spacing: 0) {
             tabBar
             toolbar
-            if app.selectedTab != nil {
-                ZStack(alignment: .bottom) {
+            if let tab = app.selectedTab {
+                ZStack(alignment: .bottomTrailing) {
                     ZStack {
-                        ForEach(app.tabs) { tab in
-                            BrowserWebView(tab: tab, bridge: tab.bridge)
-                                .opacity(tab.id == app.selectedTabID ? 1 : 0)
-                                .allowsHitTesting(tab.id == app.selectedTabID)
+                        ForEach(app.tabs) { t in
+                            if !t.isHome {
+                                BrowserWebView(tab: t, bridge: t.bridge)
+                                    .opacity(t.id == app.selectedTabID ? 1 : 0)
+                                    .allowsHitTesting(t.id == app.selectedTabID)
+                            }
+                        }
+                        if tab.isHome {
+                            HomeView()
                         }
                     }
-                    speakBar
+                    speakChrome
                 }
             } else {
                 ContentUnavailableView("Нет вкладок", systemImage: "globe")
@@ -26,6 +31,9 @@ struct ContentView: View {
         .sheet(isPresented: $app.showBookmarks) {
             BookmarksView()
                 .environmentObject(app)
+        }
+        .task {
+            await ContentBlocker.ensureCompiled()
         }
     }
 
@@ -41,8 +49,7 @@ struct ContentView: View {
                     )
                 }
                 Button {
-                    let url = app.bookmarks.first?.url ?? URL(string: "https://lenta.ru")!
-                    app.addTab(url: url)
+                    app.addTab()
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
@@ -64,15 +71,25 @@ struct ContentView: View {
                 Button { app.selectedTab?.bridge.goBack() } label: {
                     Image(systemName: "chevron.backward")
                 }
-                .disabled(!(app.selectedTab?.canGoBack ?? false))
+                .disabled(app.selectedTab?.isHome == true || !(app.selectedTab?.canGoBack ?? false))
 
                 Button { app.selectedTab?.bridge.goForward() } label: {
                     Image(systemName: "chevron.forward")
                 }
-                .disabled(!(app.selectedTab?.canGoForward ?? false))
+                .disabled(app.selectedTab?.isHome == true || !(app.selectedTab?.canGoForward ?? false))
 
-                Button { app.selectedTab?.bridge.reload() } label: {
+                Button {
+                    if app.selectedTab?.isHome == true { return }
+                    app.selectedTab?.bridge.reload()
+                } label: {
                     Image(systemName: "arrow.clockwise")
+                }
+                .disabled(app.selectedTab?.isHome == true)
+
+                Button {
+                    app.selectedTab?.goHome()
+                } label: {
+                    Image(systemName: "house")
                 }
 
                 if let tab = app.selectedTab {
@@ -103,10 +120,11 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "bookmark.fill")
                 }
+                .disabled(app.selectedTab?.isHome == true)
             }
             .padding(.horizontal, 12)
 
-            if let tab = app.selectedTab, tab.isLoading {
+            if let tab = app.selectedTab, tab.isLoading, !tab.isHome {
                 ProgressView(value: tab.estimatedProgress)
                     .progressViewStyle(.linear)
                     .padding(.horizontal, 12)
@@ -116,70 +134,149 @@ struct ContentView: View {
         .background(Color(.systemBackground))
     }
 
-    private var speakBar: some View {
-        VStack(spacing: 8) {
-            if !app.speakStatus.isEmpty {
-                Text(app.speakStatus)
-                    .font(.footnote.monospaced())
+    /// Compact FAB by default so cookie banners stay tappable; expands while speaking / on tap.
+    private var speakChrome: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if app.speakPanelOpen {
+                VStack(alignment: .trailing, spacing: 8) {
+                    if !app.speakStatus.isEmpty {
+                        Text(app.speakStatus)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.88))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .frame(maxWidth: 320, alignment: .trailing)
+                    }
+
+                    HStack(spacing: 8) {
+                        Picker("Голос", selection: Binding(
+                            get: { app.voiceID },
+                            set: { app.setVoice($0) }
+                        )) {
+                            ForEach(VoiceCatalog.all) { v in
+                                Text(v.label).tag(v.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Color(white: 0.22))
+                        .clipShape(Capsule())
+
+                        if app.isSpeaking && !app.isPaused {
+                            Button { app.togglePause() } label: {
+                                Image(systemName: "pause.fill")
+                            }
+                            .buttonStyle(SpeakIconStyle(color: Color(red: 0.77, green: 0.54, blue: 0.09)))
+                        } else if app.isPaused {
+                            Button { app.togglePause() } label: {
+                                Image(systemName: "play.fill")
+                            }
+                            .buttonStyle(SpeakIconStyle(color: Color(red: 0.18, green: 0.62, blue: 0.27)))
+                        }
+
+                        if app.isSpeaking || app.isPaused {
+                            Button { app.stopSpeaking() } label: {
+                                Image(systemName: "stop.fill")
+                            }
+                            .buttonStyle(SpeakIconStyle(color: Color(red: 0.85, green: 0.28, blue: 0.28)))
+                        }
+
+                        if !app.isSpeaking && !app.isPaused {
+                            Button {
+                                app.speak(webBridge: app.selectedTab?.bridge)
+                            } label: {
+                                Text("Озвучить")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(Color(red: 0.18, green: 0.44, blue: 0.93))
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+                }
+                .padding(.trailing, 12)
+                .padding(.bottom, 4)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
+            Button {
+                withAnimation(.snappy(duration: 0.2)) {
+                    if app.isSpeaking || app.isPaused {
+                        app.speakPanelOpen = true
+                    } else {
+                        app.speakPanelOpen.toggle()
+                    }
+                }
+            } label: {
+                Text(app.speakPanelOpen ? "×" : "▶")
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.88))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        (app.isSpeaking || app.isPaused)
+                            ? Color(red: 0.77, green: 0.54, blue: 0.09)
+                            : Color(red: 0.18, green: 0.44, blue: 0.93)
+                    )
+                    .clipShape(Circle())
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+                    .opacity(app.speakPanelOpen || app.isSpeaking || app.isPaused ? 1 : 0.55)
             }
-
-            HStack(spacing: 10) {
-                Picker("Голос", selection: Binding(
-                    get: { app.voiceID },
-                    set: { app.setVoice($0) }
-                )) {
-                    ForEach(VoiceCatalog.all) { v in
-                        Text(v.label).tag(v.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(.white)
-
-                Spacer(minLength: 0)
-
-                if app.isSpeaking && !app.isPaused {
-                    Button {
-                        app.togglePause()
-                    } label: {
-                        Label("Пауза", systemImage: "pause.fill")
-                    }
-                    .buttonStyle(SpeakButtonStyle(color: Color(red: 0.77, green: 0.54, blue: 0.09)))
-                } else if app.isPaused {
-                    Button {
-                        app.togglePause()
-                    } label: {
-                        Label("Далее", systemImage: "play.fill")
-                    }
-                    .buttonStyle(SpeakButtonStyle(color: Color(red: 0.18, green: 0.62, blue: 0.27)))
-                }
-
-                if app.isSpeaking || app.isPaused {
-                    Button {
-                        app.stopSpeaking()
-                    } label: {
-                        Label("Стоп", systemImage: "stop.fill")
-                    }
-                    .buttonStyle(SpeakButtonStyle(color: Color(red: 0.85, green: 0.28, blue: 0.28)))
-                }
-
-                if !app.isSpeaking && !app.isPaused {
-                    Button {
-                        app.speak(webBridge: app.selectedTab?.bridge)
-                    } label: {
-                        Label("Озвучить", systemImage: "play.fill")
-                    }
-                    .buttonStyle(SpeakButtonStyle(color: Color(red: 0.18, green: 0.44, blue: 0.93)))
-                }
-            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+            .padding(.bottom, 14)
+            .accessibilityLabel(app.speakPanelOpen ? "Свернуть озвучку" : "MRT+ озвучка")
         }
-        .padding(12)
-        .background(.ultraThinMaterial)
+    }
+}
+
+struct HomeView: View {
+    @EnvironmentObject private var app: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("MRT+")
+                    .font(.largeTitle.weight(.bold))
+                Text("Выберите новостной сайт — потом откройте статью и нажмите ▶")
+                    .foregroundStyle(.secondary)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
+                    ForEach(app.bookmarks) { bookmark in
+                        Button {
+                            app.openBookmark(bookmark)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(bookmark.title)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+                                Text(bookmark.url.host ?? "")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                            .padding(14)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(20)
+        }
     }
 }
 
@@ -190,7 +287,8 @@ private struct TabChip: View {
     let onClose: () -> Void
 
     private var title: String {
-        tab.title.isEmpty ? (tab.url.host ?? "Вкладка") : tab.title
+        if tab.isHome { return "Старт" }
+        return tab.title.isEmpty ? (tab.url.host ?? "Вкладка") : tab.title
     }
 
     var body: some View {
@@ -221,16 +319,15 @@ private struct TabChip: View {
     }
 }
 
-private struct SpeakButtonStyle: ButtonStyle {
+private struct SpeakIconStyle: ButtonStyle {
     let color: Color
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.semibold))
+            .font(.body.weight(.semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .frame(width: 40, height: 40)
             .background(color.opacity(configuration.isPressed ? 0.75 : 1))
-            .clipShape(Capsule())
+            .clipShape(Circle())
     }
 }
