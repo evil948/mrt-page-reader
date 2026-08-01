@@ -72,6 +72,7 @@ const GM = {
   let ttsClient = null;
   let runToken = 0;
   let lastHighlightKey = '';
+  let lastPageUrl = '';
 
   if (window !== window.top) return;
 
@@ -89,6 +90,75 @@ const GM = {
     GM.registerMenuCommand('Стоп (MRT+)', () => stopPlayback());
     injectLauncher();
     bindHotkey();
+    watchPageChanges();
+  }
+
+  function pageUrlKey() {
+    try {
+      return location.origin + location.pathname + location.search;
+    } catch (_) {
+      return String(location.href || '');
+    }
+  }
+
+  function watchPageChanges() {
+    lastPageUrl = pageUrlKey();
+    const check = () => {
+      const next = pageUrlKey();
+      if (!next || next === lastPageUrl) return;
+      lastPageUrl = next;
+      resetForNewPage('Статья сменилась — озвучка сброшена.');
+    };
+    window.addEventListener('popstate', check);
+    window.addEventListener('hashchange', check);
+    for (const method of ['pushState', 'replaceState']) {
+      const orig = history[method];
+      if (typeof orig !== 'function') continue;
+      history[method] = function (...args) {
+        const ret = orig.apply(this, args);
+        queueMicrotask(check);
+        return ret;
+      };
+    }
+    // запасной путь: часть сайтов меняет URL нестандартно
+    setInterval(check, 800);
+  }
+
+  async function resetForNewPage(statusMsg = '') {
+    runToken += 1;
+    stopAudio();
+    try {
+      ttsClient?.close();
+    } catch (_) {}
+    ttsClient = null;
+    clearHighlights();
+    document.querySelectorAll('[data-mrt-plus-pid]').forEach((el) => {
+      el.removeAttribute('data-mrt-plus-pid');
+    });
+    paragraphMap = new Map();
+    lastHighlightKey = '';
+    try {
+      const session = (await GM.getValue(SESSION_KEY, null)) || {};
+      session.stopped = true;
+      session.paused = false;
+      session.done = true;
+      session.chunks = [];
+      session.units = [];
+      session.index = 0;
+      await GM.setValue(SESSION_KEY, session);
+    } catch (_) {}
+    setTransportUi({ playing: false, paused: false });
+    if (statusMsg) {
+      setPanelOpen(true);
+      setStatus(statusMsg);
+      setTimeout(() => {
+        setStatus('');
+        setPanelOpen(false);
+      }, 2000);
+    } else {
+      setStatus('');
+      setPanelOpen(false);
+    }
   }
 
   function ui() {
@@ -453,6 +523,7 @@ const GM = {
       }
       session = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pageUrl: pageUrlKey(),
         chunks: built.chunks,
         units: built.units,
         index: 0,
@@ -466,6 +537,11 @@ const GM = {
         ts: Date.now(),
       };
     } else {
+      if (session.pageUrl && session.pageUrl !== pageUrlKey()) {
+        setStatus('Статья сменилась. Нажмите «Озвучить» снова.');
+        setTransportUi({ playing: false, paused: false });
+        return;
+      }
       Object.assign(session, {
         stopped: false,
         paused: false,
@@ -473,6 +549,7 @@ const GM = {
         error: null,
         audioConfirmed: false,
         mode: 'direct',
+        pageUrl: session.pageUrl || pageUrlKey(),
         ts: Date.now(),
       });
       rebuildParagraphMapFromDom();
@@ -502,6 +579,8 @@ const GM = {
       speed: Number(prefs.speed) || 1,
       lang: 'ru-RU',
     });
+
+    const pageStillSame = () => !session.pageUrl || session.pageUrl === pageUrlKey();
 
     const synthAt = async (index) => {
       // текст блока уже подготовлен в pack/prepareForTts — не перетираем длину,
@@ -534,6 +613,10 @@ const GM = {
 
     while (session.index < session.chunks.length) {
       if (token !== runToken) return;
+      if (!pageStillSame()) {
+        await resetForNewPage('Статья сменилась — озвучка сброшена.');
+        return;
+      }
       session = (await GM.getValue(SESSION_KEY, null)) || session;
       if (!session || session.stopped) {
         stopAudio();
@@ -704,6 +787,11 @@ const GM = {
     let session = await GM.getValue(SESSION_KEY, null);
     if (!session?.chunks?.length || session.done) {
       setStatus('Нечего продолжать.');
+      return;
+    }
+    if (session.pageUrl && session.pageUrl !== pageUrlKey()) {
+      setStatus('Статья сменилась. Нажмите «Озвучить».');
+      setTransportUi({ playing: false, paused: false });
       return;
     }
     session.stopped = false;

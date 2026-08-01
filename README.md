@@ -6,7 +6,7 @@
 
 | | |
 | --- | --- |
-| **Версия** | [1.7.0](https://github.com/evil948/mrt-page-reader/releases/tag/v1.7.0) |
+| **Версия** | [1.7.1](https://github.com/evil948/mrt-page-reader/releases/tag/v1.7.1) |
 | **Горячая клавиша** | `Alt+R` |
 | **Firefox** | подписанное расширение (`.xpi`) |
 | **Chrome / другие** | [Tampermonkey](#2-tampermonkey-userscript) |
@@ -17,7 +17,7 @@
 
 ### 1. Firefox (рекомендуется)
 
-**[⬇ Скачать MRT+ 1.7.0 для Firefox](https://github.com/evil948/mrt-page-reader/releases/download/v1.7.0/mrt-plus-1.7.0-signed.xpi)**
+**[⬇ Скачать MRT+ 1.7.1 для Firefox](https://github.com/evil948/mrt-page-reader/releases/download/v1.7.1/mrt-plus-1.7.1-signed.xpi)**
 
 1. Скачайте файл и откройте его (или перетащите в окно Firefox).
 2. Подтвердите установку дополнения.
@@ -78,6 +78,7 @@
 - **Голоса вроде Levitan** — в списке только рабочие id; часть старых имён MRT недоступна.
 - **Не тот текст** — снимите случайное выделение или используйте «озвучить выделенное».
 - **Firefox пишет «непроверенное дополнение»** — ставьте файл `*-signed.xpi` из Releases, не сырую сборку без подписи AMO.
+- **После перехода на другую новость всё ещё читает старую** — обновите до 1.7.1+; при смене URL озвучка сбрасывается.
 
 ## Разработка
 

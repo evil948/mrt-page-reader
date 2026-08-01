@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "MRT+",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Read articles aloud with Yandex voices: Alt+R, highlight, compact button.",
   "homepage_url": "https://github.com/evil948/mrt-page-reader",
   "icons": {
